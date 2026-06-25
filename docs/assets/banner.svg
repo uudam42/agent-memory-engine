@@ -1,0 +1,190 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1200"
+  height="340"
+  viewBox="0 0 1200 340"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">Agent Memory Engine</title>
+  <desc id="desc">
+    A local-first MCP runtime for persistent coding agent memory.
+  </desc>
+
+  <defs>
+    <!-- Dark background -->
+    <linearGradient id="bgGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#070b10"/>
+      <stop offset="55%" stop-color="#0b1118"/>
+      <stop offset="100%" stop-color="#030507"/>
+    </linearGradient>
+
+    <!-- Dot-grid pattern -->
+    <pattern
+      id="dotPattern"
+      width="12"
+      height="12"
+      patternUnits="userSpaceOnUse"
+    >
+      <rect width="12" height="12" fill="transparent"/>
+      <rect x="3" y="3" width="2.5" height="2.5" fill="#d9dee7" opacity="0.34"/>
+    </pattern>
+
+    <!-- Smaller background pixel pattern -->
+    <pattern
+      id="smallDots"
+      width="8"
+      height="8"
+      patternUnits="userSpaceOnUse"
+    >
+      <rect width="8" height="8" fill="transparent"/>
+      <rect x="2" y="2" width="1.4" height="1.4" fill="#7f8b99" opacity="0.24"/>
+    </pattern>
+
+    <linearGradient id="fadeLeft" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#dfe6ee" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#dfe6ee" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="fadeRight" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%" stop-color="#dfe6ee" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#dfe6ee" stop-opacity="0"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="leftClip">
+      <path d="M0 0 H330 C285 75 305 150 245 235 C220 270 185 305 135 340 H0 Z"/>
+    </clipPath>
+
+    <clipPath id="rightClip">
+      <path d="M770 0 H1200 V340 H1010 C960 290 940 230 978 165 C1012 105 1035 55 1010 0 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Base -->
+  <rect width="1200" height="340" fill="url(#bgGradient)"/>
+
+  <!-- Border -->
+  <rect
+    x="1"
+    y="1"
+    width="1198"
+    height="338"
+    fill="none"
+    stroke="#26313d"
+    stroke-width="2"
+  />
+
+  <!-- Left pixel wave -->
+  <g clip-path="url(#leftClip)">
+    <rect width="420" height="340" fill="url(#dotPattern)"/>
+    <rect width="210" height="340" fill="url(#fadeLeft)"/>
+    <path
+      d="M54 0 C115 70 92 125 155 185 C205 234 185 286 112 340"
+      fill="none"
+      stroke="#e9eef4"
+      stroke-width="20"
+      opacity="0.14"
+      filter="url(#softGlow)"
+    />
+  </g>
+
+  <!-- Background center pixel texture -->
+  <path
+    d="M360 0
+       C470 55 472 125 418 182
+       C374 230 390 295 480 340
+       H715
+       C650 282 662 215 730 160
+       C790 112 780 55 700 0 Z"
+    fill="url(#smallDots)"
+    opacity="0.9"
+  />
+
+  <!-- Right pixel wave -->
+  <g clip-path="url(#rightClip)">
+    <rect x="790" y="0" width="410" height="340" fill="url(#dotPattern)"/>
+    <rect x="1010" y="0" width="190" height="340" fill="url(#fadeRight)"/>
+  </g>
+
+  <!-- Decorative terminal squares top-left cluster -->
+  <g opacity="0.52">
+    <rect x="470" y="72" width="7" height="7" fill="#c7d0da"/>
+    <rect x="487" y="72" width="7" height="7" fill="#c7d0da"/>
+    <rect x="504" y="72" width="7" height="7" fill="#c7d0da"/>
+
+    <rect x="708" y="257" width="7" height="7" fill="#c7d0da"/>
+    <rect x="725" y="257" width="7" height="7" fill="#c7d0da"/>
+    <rect x="742" y="257" width="7" height="7" fill="#c7d0da"/>
+  </g>
+
+  <!-- Project name -->
+  <text
+    x="1065"
+    y="82"
+    text-anchor="end"
+    fill="#f4f7fb"
+    font-family="Monaco, Menlo, Consolas, 'Courier New', monospace"
+    font-size="35"
+    font-weight="700"
+    letter-spacing="2"
+  >
+    AGENT MEMORY ENGINE
+  </text>
+
+  <!-- Divider -->
+  <rect
+    x="708"
+    y="103"
+    width="357"
+    height="2"
+    fill="#dce4ed"
+    opacity="0.55"
+  />
+
+  <!-- Main tagline line 1 -->
+  <text
+    x="1065"
+    y="165"
+    text-anchor="end"
+    fill="#edf2f7"
+    font-family="Monaco, Menlo, Consolas, 'Courier New', monospace"
+    font-size="24"
+    letter-spacing="1.4"
+  >
+    LOCAL-FIRST MCP RUNTIME FOR
+  </text>
+
+  <!-- Main tagline line 2 -->
+  <text
+    x="1065"
+    y="205"
+    text-anchor="end"
+    fill="#edf2f7"
+    font-family="Monaco, Menlo, Consolas, 'Courier New', monospace"
+    font-size="24"
+    letter-spacing="1.4"
+  >
+    PERSISTENT CODING AGENT MEMORY
+  </text>
+
+  <!-- Small label -->
+  <text
+    x="1065"
+    y="265"
+    text-anchor="end"
+    fill="#a6b2bf"
+    font-family="Monaco, Menlo, Consolas, 'Courier New', monospace"
+    font-size="13"
+    letter-spacing="2"
+  >
+    RECALL &#x2022; REFLECT &#x2022; RETRIEVE &#x2022; RETAIN
+  </text>
+</svg>

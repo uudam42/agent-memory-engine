@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.png" alt="Agent Memory Engine — local-first MCP runtime for persistent coding agent memory" width="100%" />
+  <img src="docs/assets/banner.svg" alt="Agent Memory Engine — local-first MCP runtime for persistent coding agent memory" width="100%" />
 </p>
 
 <p align="center">
