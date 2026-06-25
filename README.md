@@ -64,6 +64,9 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 | **Python MCP server** | stdio transport; no TypeScript, no Docker, no external daemon |
 | **Zero-touch bootstrap** | Auto-initializes on first MCP connection |
 | **Incremental indexing** | JSON manifest; only changed files re-indexed on subsequent runs |
+| **Git-aware synchronization** | Detects branch, HEAD commit, staged/modified files via safe read-only Git commands |
+| **Branch-aware retrieval** | Prefers memory from the current branch; falls back to mainline then global |
+| **Branch-scoped memory writes** | New memories stamped with branch name and scope; mainline promotion is explicit |
 
 ---
 
@@ -374,6 +377,9 @@ tests/
 | `memory://project/current/recent-incidents` | Recent debug incidents |
 | `memory://project/current/memory-tree-summary` | Memory tree outline |
 | `memory://project/current/agent-policy` | Generated agent policy |
+| `memory://project/current/git-context` | Current Git state (branch, HEAD, staged/modified files — no remote URLs) |
+| `memory://project/current/branch-memory-summary` | Memories organized by branch scope |
+| `memory://project/current/sync-status` | Incremental sync and index freshness |
 
 ---
 
@@ -468,7 +474,10 @@ Qdrant, Docker, or any external service.
 - **Symlink protection:** links escaping project root rejected
 - **Secret redaction:** runs before persistence and before MCP output
 - **Default exclusions:** `.env`, `secrets/`, `*.pem`, `*.key`, `node_modules/`, `.git/`, binary files, files over 5 MB
-- **No auto Git commits:** never
+- **No auto Git commits:** never — Git is read-only (`rev-parse`, `branch`, `status`, `merge-base` only)
+- **No remote URL exposure:** Git remote URLs are never returned in any output
+- **No Git identity exposure:** user name and email are never collected or returned
+- **No destructive Git commands:** `commit`, `reset`, `push`, `clean`, `checkout`, `merge`, `rebase`, `fetch` are all blocked
 - **No writes outside `.memory-engine/`:** guaranteed
 
 ---
@@ -517,6 +526,27 @@ retrieval:
   cache_enabled: true
   vector_backend: auto
   allow_degraded_fallback: true
+  # Phase 9: branch-aware retrieval
+  branch_aware_ranking: true
+  prefer_current_branch: true
+  include_ancestor_branch_memory: true
+  include_mainline_fallback: true
+
+runtime:
+  # Phase 9: Git-aware synchronization
+  git_aware_sync: true
+  check_git_status_on_retrieval: true
+  auto_incremental_sync: true
+
+memory:
+  # Phase 9: branch-scoped write policy
+  branch_scope_on_feature_work: current_branch
+  mainline_promotion_requires_confirmation: true
+
+privacy:
+  # Phase 9: Git identity protection
+  expose_git_remote_url: false
+  redact_git_identity: true
 ```
 
 User edits are preserved on re-bootstrap.
