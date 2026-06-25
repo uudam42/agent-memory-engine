@@ -88,6 +88,13 @@ class MemoryNodeORM(Base):
     importance: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     module_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
+    # Phase 9: branch-aware metadata
+    branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
+    source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    branch_promotion_eligible: Mapped[bool] = mapped_column(Integer, nullable=False, default=0)
+
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
         "MemoryNodeORM", remote_side="MemoryNodeORM.id", back_populates="children"
@@ -112,6 +119,11 @@ class EvidenceORM(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    # Phase 9
+    branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
 
     memory_node: Mapped[MemoryNodeORM] = relationship(
         "MemoryNodeORM", back_populates="evidence"
@@ -166,5 +178,10 @@ class MemoryCandidateORM(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+
+    # Phase 9: branch-aware metadata
+    branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="current_branch")
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="candidates")

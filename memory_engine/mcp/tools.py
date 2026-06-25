@@ -76,6 +76,16 @@ def tool_retrieve_agent_context(
             ).model_dump(),
         }
 
+    # Phase 9: resolve Git context for branch-aware retrieval
+    git_ctx = ctx.get_git_context()
+    effective_branch = inp.current_branch or (
+        git_ctx.current_branch if git_ctx.is_repository else None
+    )
+    effective_commit = inp.head_commit or (
+        git_ctx.head_commit if git_ctx.is_repository else None
+    )
+    modified_files = list(git_ctx.modified_files) + list(git_ctx.staged_files)
+
     session = ctx.get_session()
     try:
         svc = UnifiedContextRetrievalService(
@@ -89,6 +99,9 @@ def tool_retrieve_agent_context(
             current_files=inp.current_files,
             current_symbols=inp.current_symbols,
             token_budget=inp.token_budget,
+            current_branch=effective_branch,
+            head_commit=effective_commit,
+            modified_files=modified_files,
         ))
 
         meta = RetrievalMeta(
@@ -96,6 +109,11 @@ def tool_retrieve_agent_context(
             vector_backend=mode_info.vector_backend,
             bootstrap_status=bootstrap_report.get("bootstrap_status", "READY"),
             warnings=mode_info.warnings,
+            current_branch=effective_branch,
+            head_commit=effective_commit,
+            branch_aware_ranking=effective_branch is not None,
+            git_available=git_ctx.git_available,
+            is_repository=git_ctx.is_repository,
         )
 
         return {
@@ -244,6 +262,20 @@ def tool_reflect_and_write(
     elif any(w in outcome_lower for w in ("partial", "incomplete", "progress")):
         task_outcome = TaskOutcome.partially_completed
 
+    # Phase 9: resolve branch info for the reflection
+    git_ctx = ctx.get_git_context()
+    effective_branch = inp.current_branch or (
+        git_ctx.current_branch if git_ctx.is_repository else None
+    )
+    effective_commit = inp.head_commit or (
+        git_ctx.head_commit if git_ctx.is_repository else None
+    )
+    branch_scope = (
+        "current_branch" if (effective_branch and not _is_mainline(effective_branch))
+        else "mainline" if effective_branch
+        else "global"
+    )
+
     session = ctx.get_session()
     try:
         svc = PostTaskService(session)
@@ -255,6 +287,9 @@ def tool_reflect_and_write(
             verification_status=ver_status,
             touched_files=inp.changed_files,
             agent_confidence=0.85 if ver_status != VerificationStatus.unverified else 0.65,
+            branch_name=effective_branch,
+            head_commit=effective_commit,
+            branch_scope=branch_scope,
         )
         result = svc.reflect_and_write(reflection_input)
 
@@ -320,6 +355,9 @@ def tool_memory_status(ctx: ProjectContext) -> dict[str, Any]:
     finally:
         session.close()
 
+    # Phase 9: include git context in status
+    git_ctx = ctx.get_git_context()
+
     return MemoryStatusOutput(
         project_name=ctx.project_root.name,
         project_root=str(ctx.project_root),
@@ -337,6 +375,18 @@ def tool_memory_status(ctx: ProjectContext) -> dict[str, Any]:
         index_revision=state.index_revision,
         cache_enabled=True,
         warnings=mode_info.warnings,
+        # Phase 9 fields
+        current_branch=git_ctx.current_branch,
+        head_commit=git_ctx.head_commit,
+        base_branch=git_ctx.base_branch,
+        git_available=git_ctx.git_available,
+        is_repository=git_ctx.is_repository,
+        working_tree_dirty=git_ctx.working_tree_dirty,
+        staged_files_count=len(git_ctx.staged_files),
+        modified_files_count=len(git_ctx.modified_files),
+        last_git_sync_at=state.last_git_sync_at,
+        branch_aware_retrieval_enabled=state.branch_aware_retrieval_enabled,
+        synchronization_status=state.synchronization_status,
     ).model_dump()
 
 
@@ -365,3 +415,10 @@ def _chunk_section_dict(section: Any) -> dict[str, Any]:
     if hasattr(section, "model_dump"):
         return section.model_dump()
     return dict(section) if isinstance(section, dict) else {}
+
+
+_MAINLINE_BRANCHES = frozenset({"main", "master", "develop", "development", "trunk"})
+
+
+def _is_mainline(branch: str) -> bool:
+    return branch in _MAINLINE_BRANCHES

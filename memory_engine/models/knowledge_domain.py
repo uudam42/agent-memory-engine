@@ -306,6 +306,10 @@ class UnifiedRetrievalRequest(BaseModel):
     include_knowledge: bool = True
     source_type_filter: list[SourceType] | None = None
     user_instruction_flags: dict[str, Any] = Field(default_factory=dict)
+    # Phase 9: branch-aware retrieval
+    current_branch: str | None = None
+    head_commit: str | None = None
+    modified_files: list[str] = Field(default_factory=list)
 
 
 class KnowledgeIngestRequest(BaseModel):

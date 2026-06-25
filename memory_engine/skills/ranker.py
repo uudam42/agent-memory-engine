@@ -2,8 +2,8 @@
 
 Phase 4 score formula (weights sum to 1.0):
 
-  final_score =
-    0.20 * semantic_similarity      (Phase 4: placeholder = lexical; real embeddings in future)
+  base_score =
+    0.20 * semantic_similarity      (placeholder = lexical; real embeddings in future)
   + 0.15 * lexical_similarity       (Jaccard word overlap: task vs title+summary+tags)
   + 0.10 * module_path_overlap      (node.module_path parts vs current_files stems)
   + 0.05 * symbol_overlap           (node.tags vs current_symbols)
@@ -13,9 +13,18 @@ Phase 4 score formula (weights sum to 1.0):
   + 0.10 * confidence               (node.confidence, already in [0,1])
   + 0.05 * freshness                (decay from updated_at, min 0.2)
 
-semantic_similarity is a placeholder for future embedding-based scoring.
-It is currently computed identically to lexical_similarity so it can be
-swapped out when an EmbeddingProvider is available.
+Phase 9 branch-aware formula (applied when current_branch is provided):
+
+  final_score =
+    0.35 * base_score
+  + 0.20 * branch_affinity          (current_branch match → 1.0, mainline → 0.5, other → 0.1)
+  + 0.15 * revision_validity        (1.0 if no valid_to_revision, 0.0 if superseded)
+  + 0.10 * working_tree_source_match (node source_path in current modified files)
+  + 0.10 * source_revision_freshness (decay from source_revision age, or 0.5 if unknown)
+  + 0.10 * branch_scope_priority     (current_branch=1.0, inherited=0.7, mainline=0.5, global=0.3)
+
+When current_branch is None the Phase 9 signals are not applied and
+base_score is the final score (backward-compatible).
 
 All component scores are in [0, 1].
 The breakdown is stored for every scored node so retrieval traces are exact.
@@ -48,6 +57,24 @@ W_TREE_PROX = 0.15
 W_IMPORTANCE = 0.10
 W_CONFIDENCE = 0.10
 W_FRESHNESS = 0.05
+
+# Phase 9 branch-aware weights (applied on top of base_score when current_branch is set)
+W9_BASE = 0.35
+W9_BRANCH_AFFINITY = 0.20
+W9_REVISION_VALIDITY = 0.15
+W9_WORKING_TREE_MATCH = 0.10
+W9_SRC_REVISION_FRESH = 0.10
+W9_BRANCH_SCOPE_PRIORITY = 0.10
+
+# Branch scope priority values
+_BRANCH_SCOPE_PRIORITY: dict[str, float] = {
+    "current_branch": 1.0,
+    "inherited_branch": 0.7,
+    "mainline": 0.5,
+    "global": 0.3,
+    "historical": 0.2,
+    "unknown": 0.3,
+}
 
 # ---------------------------------------------------------------------------
 # Intent × MemoryKind affinity table
@@ -192,6 +219,10 @@ class DeterministicRanker:
         intent: TaskIntent,
         current_files: list[str],
         current_symbols: list[str],
+        # Phase 9: optional branch-aware signals
+        current_branch: str | None = None,
+        modified_files: list[str] | None = None,
+        head_commit: str | None = None,
     ) -> ScoredMemory:
         """Compute and return a ScoredMemory with a full breakdown dict."""
         task_words = _word_set(task)
@@ -232,7 +263,7 @@ class DeterministicRanker:
         # 9. Freshness
         fresh = _freshness(node.updated_at)
 
-        final = (
+        base_score = (
             W_SEMANTIC * semantic
             + W_LEXICAL * lex
             + W_MODULE * mod
@@ -244,7 +275,7 @@ class DeterministicRanker:
             + W_FRESHNESS * fresh
         )
 
-        breakdown = {
+        breakdown: dict[str, float] = {
             "semantic_similarity": round(semantic, 4),
             "lexical_similarity": round(lex, 4),
             "module_path_overlap": round(mod, 4),
@@ -254,8 +285,29 @@ class DeterministicRanker:
             "importance": round(imp, 4),
             "confidence": round(conf, 4),
             "freshness": round(fresh, 4),
-            "final_score": round(final, 4),
+            "base_score": round(base_score, 4),
         }
+
+        # Phase 9: apply branch-aware re-weighting when current_branch is known
+        if current_branch is not None:
+            branch_signals = self._branch_signals(
+                node,
+                current_branch=current_branch,
+                modified_files=modified_files or [],
+            )
+            final = (
+                W9_BASE * base_score
+                + W9_BRANCH_AFFINITY * branch_signals["branch_affinity"]
+                + W9_REVISION_VALIDITY * branch_signals["revision_validity"]
+                + W9_WORKING_TREE_MATCH * branch_signals["working_tree_source_match"]
+                + W9_SRC_REVISION_FRESH * branch_signals["source_revision_freshness"]
+                + W9_BRANCH_SCOPE_PRIORITY * branch_signals["branch_scope_priority"]
+            )
+            breakdown.update({k: round(v, 4) for k, v in branch_signals.items()})
+        else:
+            final = base_score
+
+        breakdown["final_score"] = round(final, 4)
 
         return ScoredMemory(node=node, score=round(final, 4), score_breakdown=breakdown)
 
@@ -267,6 +319,9 @@ class DeterministicRanker:
         intent: TaskIntent,
         current_files: list[str],
         current_symbols: list[str],
+        current_branch: str | None = None,
+        modified_files: list[str] | None = None,
+        head_commit: str | None = None,
     ) -> list[ScoredMemory]:
         """Score all nodes and return them sorted by descending score."""
         scored = [
@@ -276,6 +331,9 @@ class DeterministicRanker:
                 intent=intent,
                 current_files=current_files,
                 current_symbols=current_symbols,
+                current_branch=current_branch,
+                modified_files=modified_files,
+                head_commit=head_commit,
             )
             for n in nodes
         ]
@@ -305,3 +363,57 @@ class DeterministicRanker:
         if not syms:
             return 0.0
         return len(node_tags & syms) / len(syms)
+
+    def _branch_signals(
+        self,
+        node: MemoryNode,
+        *,
+        current_branch: str,
+        modified_files: list[str],
+    ) -> dict[str, float]:
+        """Compute Phase 9 branch-aware signal scores for a single node."""
+        node_branch = getattr(node, "branch_name", None)
+        node_scope = getattr(node, "branch_scope", None) or "global"
+        node_valid_to = getattr(node, "valid_to_revision", None)
+        node_source_path = getattr(node, "source_path", None)
+
+        # 1. Branch affinity
+        if node_branch is None or node_scope == "global":
+            branch_affinity = 0.3   # global memories are weakly preferred
+        elif node_branch == current_branch:
+            branch_affinity = 1.0
+        elif node_scope == "mainline":
+            branch_affinity = 0.5
+        elif node_scope in ("inherited_branch",):
+            branch_affinity = 0.6
+        else:
+            branch_affinity = 0.1   # different unrelated branch
+
+        # 2. Revision validity
+        if node_valid_to is None:
+            revision_validity = 1.0   # no expiry → fully valid
+        else:
+            revision_validity = 0.0   # superseded by a later revision
+
+        # 3. Working tree source match
+        working_tree_source_match = 0.0
+        if node_source_path and modified_files:
+            norm_source = node_source_path.lstrip("/")
+            for mf in modified_files:
+                if norm_source in mf or mf in norm_source:
+                    working_tree_source_match = 1.0
+                    break
+
+        # 4. Source revision freshness (placeholder: 0.5 when unknown)
+        source_revision_freshness = 0.5
+
+        # 5. Branch scope priority
+        branch_scope_priority = _BRANCH_SCOPE_PRIORITY.get(node_scope, 0.3)
+
+        return {
+            "branch_affinity": branch_affinity,
+            "revision_validity": revision_validity,
+            "working_tree_source_match": working_tree_source_match,
+            "source_revision_freshness": source_revision_freshness,
+            "branch_scope_priority": branch_scope_priority,
+        }

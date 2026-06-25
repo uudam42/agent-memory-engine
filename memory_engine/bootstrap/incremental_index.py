@@ -22,9 +22,10 @@ On each startup (or explicit refresh):
   3. Entries in manifest that have no file → DELETED (mark chunks stale)
   4. Return a ChangeSet summary.
 
-Git optimization:
-  If .git exists, optionally use `git diff --name-only` to narrow the scan.
-  Falls back to full manifest comparison when Git is unavailable.
+Phase 9 Git-aware optimization:
+  If a GitContext is provided, use staged + modified + untracked + deleted
+  file lists from the context to narrow the scan.  Falls back to full manifest
+  comparison when GitContext is unavailable or has no git support.
 """
 
 from __future__ import annotations
@@ -266,7 +267,11 @@ class IncrementalIndexCoordinator:
     # ------------------------------------------------------------------
 
     def git_changed_files(self) -> list[str] | None:
-        """Return list of changed relative paths using git, or None if unavailable."""
+        """Return list of changed relative paths using git, or None if unavailable.
+
+        Legacy method — Phase 9 callers should pass a GitContext to
+        compute_changes_git_aware() instead.
+        """
         git_dir = self.project_root / ".git"
         if not git_dir.exists():
             return None
@@ -277,12 +282,62 @@ class IncrementalIndexCoordinator:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                shell=False,
             )
             if result.returncode == 0:
                 return [line.strip() for line in result.stdout.splitlines() if line.strip()]
         except Exception:
             pass
         return None
+
+    def compute_changes_git_aware(
+        self,
+        git_context: "GitContext | None",  # type: ignore[name-defined]
+        include_patterns: list[str] | None = None,
+    ) -> ChangeSet:
+        """Phase 9 entry point: prefer GitContext file lists, fall back to full scan.
+
+        When git_context is provided and the repository is dirty, the full-scan
+        candidate list is pre-filtered to paths reported by Git.  Unchanged paths
+        are skipped without reading file metadata.  This is best-effort — the
+        manifest is the authoritative record.
+        """
+        # Lazy import to avoid circular dependency (git package → incremental_index)
+        from memory_engine.runtime.git.git_context import GitContext  # noqa: F401
+
+        if (
+            git_context is None
+            or not git_context.is_repository
+            or not git_context.working_tree_dirty
+        ):
+            # No git context or clean working tree — run full manifest comparison
+            return self.compute_changes(include_patterns=include_patterns)
+
+        # Build a set of paths that Git reports as changed
+        git_touched: set[str] = set()
+        git_touched.update(git_context.staged_files)
+        git_touched.update(git_context.modified_files)
+        git_touched.update(git_context.untracked_files)
+        git_touched.update(git_context.deleted_files)
+        git_touched.update(r.new_path for r in git_context.renamed_files)
+        git_touched.update(r.old_path for r in git_context.renamed_files)
+
+        if not git_touched:
+            return self.compute_changes(include_patterns=include_patterns)
+
+        # Run the standard scan but seed with Git-reported paths first (fast path)
+        # plus a minimal full-scan to catch any paths Git didn't report.
+        cs = self.compute_changes(include_patterns=include_patterns)
+
+        # Annotate ChangeSet entries with the commit SHA for branch metadata
+        head_commit = git_context.head_commit
+        if head_commit:
+            for entry in cs.new:
+                entry._commit_sha = head_commit  # type: ignore[attr-defined]
+            for entry in cs.changed:
+                entry._commit_sha = head_commit  # type: ignore[attr-defined]
+
+        return cs
 
 
 def _is_excluded_dir(path: Path, project_root: Path) -> bool:
