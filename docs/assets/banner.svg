@@ -6,7 +6,7 @@
   role="img"
   aria-labelledby="title desc"
 >
-  <title id="title">Agent Memory Engine</title>
+  <title id="title">Memforge Agent Memory Engine</title>
   <desc id="desc">
     A local-first MCP runtime for persistent coding agent memory.
   </desc>
