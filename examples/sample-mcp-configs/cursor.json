@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "memory-engine": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/absolute/path/to/memory-engine",
+        "memory-engine-mcp",
+        "--project-root",
+        "/absolute/path/to/your-project"
+      ]
+    }
+  }
+}

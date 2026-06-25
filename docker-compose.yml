@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ME_DATABASE_URL: "sqlite:////data/memory_engine.db"
+      ME_LOG_LEVEL: "INFO"
+    volumes:
+      - memory_data:/data
+
+volumes:
+  memory_data:

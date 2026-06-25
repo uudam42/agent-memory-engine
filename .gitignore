@@ -1,0 +1,126 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.egg
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Virtual environments
+# ──────────────────────────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.uv/
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Environment and secrets
+# ──────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+secrets/
+private/
+.aws/
+.gcp/
+.azure/
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Memory Engine: project-local runtime state
+#
+# All generated runtime files are ignored by default.
+# The four human-authored project files listed below may optionally be committed.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Ignore everything inside .memory-engine/ ...
+.memory-engine/*
+
+# ... except these four human-authored files:
+!.memory-engine/config.yaml
+!.memory-engine/constraints.md
+!.memory-engine/team-rules.md
+!.memory-engine/decisions.md
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Local databases and generated indexes
+# ──────────────────────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+indexes/
+vector_index/
+qdrant_data/
+chroma/
+# Ignore cache, logs, manifests dirs at project root and inside .memory-engine/
+# (use rooted patterns to avoid matching source packages named 'cache')
+/cache/
+/logs/
+/manifests/
+.memory-engine/cache/
+.memory-engine/logs/
+.memory-engine/manifests/
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Editor and OS files
+# ──────────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.claude/
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Node / frontend artifacts (if present)
+# ──────────────────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Build / binary / temp artifacts
+# ──────────────────────────────────────────────────────────────────────────────
+target/
+out/
+release/
+debug/
+*.log
+*.tmp
+*.bak
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Test artifacts
+# ──────────────────────────────────────────────────────────────────────────────
+test-results/
+playwright-report/
+allure-results/
+.tmp/
+tmp/
