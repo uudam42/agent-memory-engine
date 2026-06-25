@@ -11,7 +11,6 @@
   <a href="https://github.com/uudam42/agent-memory-engine/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/uudam42/agent-memory-engine?style=for-the-badge" alt="MIT 许可证" />
   </a>
-  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+" />
 
 </p>
 
