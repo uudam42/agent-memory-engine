@@ -45,6 +45,15 @@ class ProjectState(BaseModel):
     last_indexed_at: str = ""
     warnings: list[str] = Field(default_factory=list)
 
+    # Phase 9: Git and branch state (all optional — backward compatible)
+    current_branch: str | None = None
+    head_commit: str | None = None
+    base_branch: str | None = None
+    last_git_sync_at: str = ""
+    last_indexed_commit: str | None = None
+    branch_aware_retrieval_enabled: bool = False
+    synchronization_status: str = "idle"   # idle | syncing | error
+
     def bump_memory(self) -> None:
         self.memory_revision += 1
 

@@ -63,6 +63,9 @@ Memory Engine 通过维护一棵结构化的、有证据支撑的记忆树，以
 | **Python MCP Server** | stdio 传输，无需 TypeScript、Docker 或外部守护进程 |
 | **零配置自动初始化** | 首次 MCP 连接时自动完成引导流程 |
 | **增量索引** | JSON 文件清单，后续启动只对变更文件重新索引 |
+| **Git 感知同步** | 通过只读 Git 命令检测分支、HEAD 提交、暂存/修改文件 |
+| **分支感知检索** | 优先返回当前分支的记忆，降级到主线再降级到全局 |
+| **分支范围记忆写入** | 新记忆携带分支名称和范围；主线提升需要显式确认 |
 
 ---
 
@@ -366,6 +369,9 @@ docs/
 | `memory://project/current/recent-incidents` | 近期故障事件 |
 | `memory://project/current/memory-tree-summary` | 记忆树概览 |
 | `memory://project/current/agent-policy` | 自动生成的 Agent 策略文件 |
+| `memory://project/current/git-context` | 当前 Git 状态（分支、HEAD、暂存/修改文件，不含远程 URL） |
+| `memory://project/current/branch-memory-summary` | 按分支范围组织的记忆 |
+| `memory://project/current/sync-status` | 增量同步状态与索引新鲜度 |
 
 ---
 
@@ -468,7 +474,10 @@ your-project/.memory-engine/
 - **符号链接保护：** 指向项目根目录外的符号链接会被拒绝
 - **秘密脱敏：** 在持久化前和 MCP 输出前各运行一次
 - **默认排除：** `.env`、`secrets/`、`*.pem`、`*.key`、`node_modules/`、`.git/`、二进制文件、超过 5 MB 的文件
-- **不自动 Git 提交：** 永远不会
+- **不自动 Git 提交：** 永远不会 — Git 访问完全只读（仅 `rev-parse`、`branch`、`status`、`merge-base`）
+- **不暴露远程 URL：** Git 远程 URL 从不出现在任何输出中
+- **不暴露 Git 身份：** 用户名和邮箱从不被收集或返回
+- **不执行破坏性 Git 命令：** `commit`、`reset`、`push`、`clean`、`checkout`、`merge`、`rebase`、`fetch` 均被阻止
 - **不修改 `.memory-engine/` 以外的文件：** 严格保证
 
 ---

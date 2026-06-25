@@ -28,7 +28,8 @@ from memory_engine.knowledge.cache import SimpleCache
 from memory_engine.knowledge.vector_index import InMemoryVectorIndex
 from memory_engine.models.orm import Base
 import memory_engine.models.knowledge_orm  # noqa: F401 — register ORM
-from memory_engine.db.init_db import create_fts_tables
+from memory_engine.db.init_db import create_fts_tables, apply_schema_migrations
+from memory_engine.runtime.git import GitContext, GitContextResolver
 
 
 class ProjectContext:
@@ -44,6 +45,7 @@ class ProjectContext:
         self._cache: SimpleCache | None = None
         self._mode_info: RetrievalModeInfo | None = None
         self._project_id: str | None = None
+        self._git_context: GitContext | None = None   # Phase 9: cached per-call
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -80,6 +82,7 @@ class ProjectContext:
             Base.metadata.create_all(bind=self._engine)
             with self._engine.connect() as conn:
                 create_fts_tables(conn)
+                apply_schema_migrations(conn)  # Phase 9: idempotent ADD COLUMN
                 conn.commit()
         return self._engine
 
@@ -122,6 +125,17 @@ class ProjectContext:
     def get_state_manager(self) -> ProjectStateManager:
         self.storage.ensure_layout()
         return ProjectStateManager(self.storage.project_state_path)
+
+    def get_git_context(self, *, refresh: bool = False) -> GitContext:
+        """Return (and optionally refresh) the Git context for this project root.
+
+        The context is re-resolved every call when refresh=True,
+        otherwise cached for the lifetime of the process.
+        """
+        if self._git_context is None or refresh:
+            resolver = GitContextResolver(self.project_root)
+            self._git_context = resolver.resolve()
+        return self._git_context
 
     # ------------------------------------------------------------------
     # Helpers

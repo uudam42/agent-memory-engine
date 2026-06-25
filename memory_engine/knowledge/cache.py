@@ -58,6 +58,10 @@ class SimpleCache:
         current_files: list[str],
         current_symbols: list[str],
         token_budget: int,
+        *,
+        current_branch: str | None = None,
+        head_commit: str | None = None,
+        working_tree_dirty: bool = False,
     ) -> str:
         payload = json.dumps({
             "pid": project_id,
@@ -65,6 +69,12 @@ class SimpleCache:
             "files": sorted(current_files),
             "symbols": sorted(current_symbols),
             "budget": token_budget,
+            # Phase 9: branch context — different branches yield different cache entries.
+            # working_tree_dirty causes a unique key when the tree is modified,
+            # preventing stale results from being served after uncommitted edits.
+            "branch": current_branch,
+            "commit": head_commit,
+            "dirty": working_tree_dirty,
         }, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:32]
 

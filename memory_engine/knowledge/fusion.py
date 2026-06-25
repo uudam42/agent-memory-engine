@@ -113,6 +113,10 @@ class UnifiedContextRetrievalService:
             current_files=req.current_files,
             current_symbols=req.current_symbols,
             token_budget=req.token_budget,
+            # Phase 9: branch context — separate cache entries per branch/commit
+            current_branch=req.current_branch,
+            head_commit=req.head_commit,
+            working_tree_dirty=bool(req.modified_files),
         )
         cached = self._cache.get(cache_key)
         if cached is not None:

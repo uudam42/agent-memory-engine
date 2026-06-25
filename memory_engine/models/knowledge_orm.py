@@ -56,6 +56,13 @@ class KnowledgeDocumentORM(Base):
     version_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+
+    # Phase 9: extended branch metadata
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
+    source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    valid_from_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    valid_to_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -99,6 +106,12 @@ class KnowledgeChunkORM(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+
+    # Phase 9: branch-aware metadata
+    branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
+    source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     document: Mapped[KnowledgeDocumentORM] = relationship(
         "KnowledgeDocumentORM", back_populates="chunks"

@@ -55,6 +55,9 @@ from memory_engine.mcp.resources import (
     resource_memory_tree_summary,
     resource_recent_incidents,
     resource_status,
+    resource_git_context,
+    resource_branch_memory_summary,
+    resource_sync_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -239,6 +242,19 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
     @mcp_server.resource("memory://project/current/agent-policy")
     async def get_agent_policy() -> str:
         return resource_agent_policy(ctx)
+
+    # Phase 9: Git-aware resources
+    @mcp_server.resource("memory://project/current/git-context")
+    async def get_git_context() -> str:
+        return resource_git_context(ctx)
+
+    @mcp_server.resource("memory://project/current/branch-memory-summary")
+    async def get_branch_memory_summary() -> str:
+        return resource_branch_memory_summary(ctx)
+
+    @mcp_server.resource("memory://project/current/sync-status")
+    async def get_sync_status() -> str:
+        return resource_sync_status(ctx)
 
     return mcp_server
 

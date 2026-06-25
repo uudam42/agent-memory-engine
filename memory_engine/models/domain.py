@@ -51,6 +51,7 @@ class RelationType(StrEnum):
     """Directed relationship between two memory nodes.
 
     Phase 3 additions: supports, contradicts, derived_from
+    Phase 9 additions: branch-aware relation types
     """
 
     depends_on = "depends_on"
@@ -61,6 +62,12 @@ class RelationType(StrEnum):
     supports = "supports"
     contradicts = "contradicts"
     derived_from = "derived_from"
+    # Phase 9: branch-aware relations
+    derived_from_branch = "derived_from_branch"
+    inherited_from_mainline = "inherited_from_mainline"
+    promoted_to_mainline = "promoted_to_mainline"
+    invalidated_by_branch_change = "invalidated_by_branch_change"
+    renamed_source = "renamed_source"
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +234,14 @@ class MemoryNode(MemoryNodeBase):
     confidence: float = 1.0
     importance: float = 0.5
     module_path: str | None = None
+
+    # Phase 9: branch-aware fields (nullable — backward compatible)
+    branch_name: str | None = None
+    branch_scope: str | None = None
+    commit_sha: str | None = None
+    source_revision: str | None = None
+    branch_promotion_eligible: bool = False
+    source_path: str | None = None     # file path from evidence/source context
 
 
 # ---------------------------------------------------------------------------
@@ -586,6 +601,11 @@ class ReflectionInput(BaseModel):
 
     # Optional — helps the reflection skill classify more accurately
     task_intent: TaskIntent | None = None
+
+    # Phase 9: branch context for scoped memory writes
+    branch_name: str | None = None
+    head_commit: str | None = None
+    branch_scope: str | None = None   # current_branch | mainline | global
     module_path: str | None = None        # primary affected module (dotted path)
     task_metadata: dict[str, Any] = Field(default_factory=dict)
 

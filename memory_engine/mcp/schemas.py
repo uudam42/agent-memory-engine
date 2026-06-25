@@ -16,6 +16,12 @@ class RetrievalMeta(BaseModel):
     vector_backend: str = "ephemeral"
     bootstrap_status: str = "READY"
     warnings: list[str] = Field(default_factory=list)
+    # Phase 9: git context fields
+    current_branch: str | None = None
+    head_commit: str | None = None
+    branch_aware_ranking: bool = False
+    git_available: bool = False
+    is_repository: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +35,9 @@ class RetrieveContextInput(BaseModel):
     current_symbols: list[str] = Field(default_factory=list)
     token_budget: int = 6000
     user_instruction_flags: dict[str, Any] = Field(default_factory=dict)
+    # Phase 9: optional branch context (caller can override auto-detection)
+    current_branch: str | None = None
+    head_commit: str | None = None
 
 
 class InspectMemoryInput(BaseModel):
@@ -55,6 +64,9 @@ class ReflectAndWriteInput(BaseModel):
     test_summary: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
     user_instruction_flags: dict[str, Any] = Field(default_factory=dict)
+    # Phase 9: branch context for scoped memory writes
+    current_branch: str | None = None
+    head_commit: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -105,3 +117,15 @@ class MemoryStatusOutput(BaseModel):
     index_revision: int = 0
     cache_enabled: bool = True
     warnings: list[str] = Field(default_factory=list)
+    # Phase 9: Git and branch state
+    current_branch: str | None = None
+    head_commit: str | None = None
+    base_branch: str | None = None
+    git_available: bool = False
+    is_repository: bool = False
+    working_tree_dirty: bool = False
+    staged_files_count: int = 0
+    modified_files_count: int = 0
+    last_git_sync_at: str = ""
+    branch_aware_retrieval_enabled: bool = False
+    synchronization_status: str = "idle"
