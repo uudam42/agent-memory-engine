@@ -8,15 +8,12 @@
 
 <p align="center">
   <a href="https://github.com/uudam42/agent-memory-engine/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/uudam42/agent-memory-engine/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI Status" />
   </a>
   <a href="https://github.com/uudam42/agent-memory-engine/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/uudam42/agent-memory-engine?style=for-the-badge" alt="MIT License" />
   </a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/MCP-Python%20Server-8A2BE2?style=for-the-badge" alt="MCP Python Server" />
-  <img src="https://img.shields.io/badge/Runtime-Local--First-00A67E?style=for-the-badge" alt="Local-First Runtime" />
-  <img src="https://img.shields.io/badge/Retrieval-SQLite%20FTS5%20%2B%20Memory%20Tree-1F6FEB?style=for-the-badge" alt="SQLite FTS5 + Memory Tree Retrieval" />
+ 
 </p>
 
 <p align="center">
