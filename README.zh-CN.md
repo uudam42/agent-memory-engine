@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="Memforge Agent Memory Engine — 本地优先的 Coding Agent 持久记忆 MCP 运行时" width="100%" />
+  <img src="docs/assets/banner.svg" alt="Agent Memory Engine — 本地优先的 Coding Agent 持久记忆 MCP 运行时" width="100%" />
 </p>
 
 <p align="center">
