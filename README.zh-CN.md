@@ -1,6 +1,31 @@
-[English](README.md) | [中文](README.zh-CN.md)
+<p align="center">
+  <img src="docs/assets/banner.png" alt="Agent Memory Engine — 本地优先的 Coding Agent 持久记忆 MCP 运行时" width="100%" />
+</p>
 
-# Memory Engine
+<p align="center">
+  <strong>为 Coding Agent 提供跨会话持久记忆与项目知识检索能力的本地优先 MCP 运行时。</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/uudam42/agent-memory-engine/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/uudam42/agent-memory-engine/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI 状态" />
+  </a>
+  <a href="https://github.com/uudam42/agent-memory-engine/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/uudam42/agent-memory-engine?style=for-the-badge" alt="MIT 许可证" />
+  </a>
+  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/MCP-Python%20Server-8A2BE2?style=for-the-badge" alt="MCP Python Server" />
+  <img src="https://img.shields.io/badge/运行时-本地优先-00A67E?style=for-the-badge" alt="本地优先运行时" />
+  <img src="https://img.shields.io/badge/检索-SQLite%20FTS5%20%2B%20记忆树-1F6FEB?style=for-the-badge" alt="SQLite FTS5 + 记忆树检索" />
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a>
+</p>
+
+---
+
+# Agent Memory Engine
 
 **一个本地优先的 MCP 运行时，为 Coding Agent 提供可追溯的项目长期记忆与基于代码、文档和测试证据的项目知识检索能力。**
 
