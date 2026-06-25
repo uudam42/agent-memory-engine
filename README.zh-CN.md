@@ -7,16 +7,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/uudam42/agent-memory-engine/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/uudam42/agent-memory-engine/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI 状态" />
   </a>
   <a href="https://github.com/uudam42/agent-memory-engine/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/uudam42/agent-memory-engine?style=for-the-badge" alt="MIT 许可证" />
   </a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+" />
-  <img src="https://img.shields.io/badge/MCP-Python%20Server-8A2BE2?style=for-the-badge" alt="MCP Python Server" />
-  <img src="https://img.shields.io/badge/运行时-本地优先-00A67E?style=for-the-badge" alt="本地优先运行时" />
-  <img src="https://img.shields.io/badge/检索-SQLite%20FTS5%20%2B%20记忆树-1F6FEB?style=for-the-badge" alt="SQLite FTS5 + 记忆树检索" />
+
 </p>
 
 <p align="center">
