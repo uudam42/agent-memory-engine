@@ -607,7 +607,9 @@ def test_incremental_index_compute_changes_git_aware_clean_tree():
 
 def test_project_context_get_git_context():
     from memory_engine.mcp.project_context import ProjectContext
-    ctx = ProjectContext(Path("/Users/uudam/Desktop/agent_memory_engine"))
+    # Derive repo root from this file's location — portable across OS/CI
+    repo_root = Path(__file__).parent.parent
+    ctx = ProjectContext(repo_root)
     git_ctx = ctx.get_git_context()
     assert git_ctx.is_repository
     assert git_ctx.current_branch is not None
@@ -615,7 +617,8 @@ def test_project_context_get_git_context():
 
 def test_project_context_get_git_context_refresh():
     from memory_engine.mcp.project_context import ProjectContext
-    ctx = ProjectContext(Path("/Users/uudam/Desktop/agent_memory_engine"))
+    repo_root = Path(__file__).parent.parent
+    ctx = ProjectContext(repo_root)
     git_ctx1 = ctx.get_git_context()
     git_ctx2 = ctx.get_git_context(refresh=True)
     # Both should be valid — second is a fresh resolve
