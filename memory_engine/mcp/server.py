@@ -77,7 +77,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--log-level", default="WARNING", help="Logging level (default: WARNING)")
     p.add_argument("--disable-auto-index", action="store_true", help="Skip indexing on start")
     p.add_argument("--privacy-mode", action="store_true", help="Extra-strict privacy mode")
-    p.add_argument("--version", action="version", version="memory-engine 0.1.0 (Phase 7)")
+    p.add_argument("--version", action="version", version="memory-engine 0.1.0 (Phase 9)")
     return p.parse_args(argv)
 
 
@@ -106,7 +106,10 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
         description=(
             "Retrieve the smallest relevant set of persistent memory and grounded "
             "project knowledge before non-trivial coding work. "
-            "Bootstraps the project automatically on first use."
+            "Bootstraps the project automatically on first use. "
+            "Pass current_branch and head_commit to enable branch-aware retrieval "
+            "(Phase 9): memories from the current branch are ranked higher than "
+            "mainline or unrelated branches."
         ),
     )
     async def retrieve_agent_context(
@@ -114,12 +117,16 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
         current_files: list[str] | None = None,
         current_symbols: list[str] | None = None,
         token_budget: int = 6000,
+        current_branch: str | None = None,
+        head_commit: str | None = None,
     ) -> dict:  # type: ignore[type-arg]
         inp = RetrieveContextInput(
             task=task,
             current_files=current_files or [],
             current_symbols=current_symbols or [],
             token_budget=token_budget,
+            current_branch=current_branch,
+            head_commit=head_commit,
         )
         return tool_retrieve_agent_context(ctx, inp)
 
@@ -175,7 +182,11 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
             "Report a completed validated task to the post-task reflection pipeline. "
             "The system decides whether and how to retain knowledge — agents cannot "
             "force memory creation directly. "
-            "Do not call for trivial, failed, reverted, or unverified work."
+            "Do not call for trivial, failed, reverted, or unverified work. "
+            "verification_status must be one of: tests_passed, build_success, "
+            "manual_check, tests_failed, unverified. "
+            "Pass current_branch and head_commit (Phase 9) to scope the written "
+            "memory to the correct branch; omit to auto-detect from Git."
         ),
     )
     async def reflect_and_write(
@@ -185,6 +196,8 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
         changed_files: list[str] | None = None,
         task_summary: str | None = None,
         test_summary: str | None = None,
+        current_branch: str | None = None,
+        head_commit: str | None = None,
     ) -> dict:  # type: ignore[type-arg]
         inp = ReflectAndWriteInput(
             task=task,
@@ -193,6 +206,8 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
             changed_files=changed_files or [],
             task_summary=task_summary,
             test_summary=test_summary,
+            current_branch=current_branch,
+            head_commit=head_commit,
         )
         return tool_reflect_and_write(ctx, inp)
 
