@@ -38,6 +38,10 @@ class RetrieveContextInput(BaseModel):
     # Phase 9: optional branch context (caller can override auto-detection)
     current_branch: str | None = None
     head_commit: str | None = None
+    # Phase 10: multi-granularity routing hints
+    task_intent: str = "unknown"
+    preferred_layers: list[str] = Field(default_factory=list)
+    proposition_types: list[str] | None = None
 
 
 class InspectMemoryInput(BaseModel):
@@ -83,10 +87,13 @@ class RetrieveContextOutput(BaseModel):
     incidents: list[Any] = Field(default_factory=list)
     procedures: list[Any] = Field(default_factory=list)
     knowledge_chunks: list[Any] = Field(default_factory=list)
+    # Phase 10: multi-granularity results (proposition / paragraph / summary)
+    multigranular_chunks: list[Any] = Field(default_factory=list)
     retrieval_trace: list[Any] = Field(default_factory=list)
     total_token_estimate: int = 0
     memory_results_count: int = 0
     knowledge_results_count: int = 0
+    multigranular_results_count: int = 0
     meta: RetrievalMeta = Field(default_factory=RetrievalMeta)
 
 

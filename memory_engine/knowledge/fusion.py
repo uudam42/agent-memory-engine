@@ -39,6 +39,7 @@ from memory_engine.knowledge.cache import (
     normalize_query,
 )
 from memory_engine.knowledge.ingestion import get_shared_vector_index
+from memory_engine.knowledge.multigranular_search import MultiGranularKnowledgeSearchService
 from memory_engine.knowledge.search import KnowledgeSearchService
 from memory_engine.knowledge.vector_index import KnowledgeVectorIndex
 from memory_engine.models.domain import (
@@ -49,10 +50,13 @@ from memory_engine.models.knowledge_domain import (
     KnowledgeContextSection,
     KnowledgeSearchRequest,
     KnowledgeTraceEntry,
+    MultiGranularSearchRequest,
+    MultiGranularitySearchResult,
     SourceType,
     UnifiedContextPack,
     UnifiedRetrievalRequest,
 )
+from memory_engine.models.orm import MemoryNodeORM
 from memory_engine.skills.recall import RecallService
 
 
@@ -67,9 +71,11 @@ _KNOWLEDGE_INTENTS = frozenset({
     TaskIntent.documentation,
 })
 
-# Knowledge token budget = 40% of total
+# Token budget split
 _KNOWLEDGE_BUDGET_RATIO = 0.40
 _MEMORY_BUDGET_RATIO = 0.60
+# Phase 10: multigranular gets 25% of the knowledge budget (= 10% of total)
+_MULTIGRANULAR_BUDGET_RATIO = 0.25
 
 
 def _estimate_tokens(text: str) -> int:
@@ -249,11 +255,40 @@ class UnifiedContextRetrievalService:
                     reason=f"hybrid_score={kr.score:.3f}",
                 ))
 
+        # ── Phase 10: multigranular retrieval ──────────────────────────────────
+        multigranular_results: list[MultiGranularitySearchResult] = []
+        if should_search_knowledge and _has_phase10_data(self._session, project_id_str):
+            mg_budget = max(500, int(knowledge_budget * _MULTIGRANULAR_BUDGET_RATIO))
+            mg_svc = MultiGranularKnowledgeSearchService(self._session)
+            mg_req = MultiGranularSearchRequest(
+                project_id=req.project_id,
+                query=req.task,
+                current_files=req.current_files,
+                current_symbols=req.current_symbols,
+                task_intent=req.task_intent,
+                preferred_layers=req.preferred_layers,
+                proposition_types=req.proposition_types,
+                max_results=10,
+                token_budget=mg_budget,
+            )
+            mg_results = mg_svc.search(mg_req)
+
+            # Exclude results already covered by chunk-level search
+            chunk_paths = {s.source_path for s in knowledge_sections if s.source_path}
+            mg_token_used = 0
+            for mgr in mg_results:
+                if mg_token_used >= mg_budget:
+                    break
+                tok = _estimate_tokens(mgr.content)
+                mg_token_used += tok
+                multigranular_results.append(mgr)
+
         # ── Assemble unified pack ─────────────────────────────────────────────
         pack = _build_unified_pack(
             req=req,
             memory_pack=memory_pack,
             knowledge_sections=knowledge_sections,
+            multigranular_results=multigranular_results,
             memory_traces=memory_traces,
             knowledge_traces=knowledge_traces,
         )
@@ -295,10 +330,22 @@ def _is_near_duplicate_to_memory(preview: str, memory_texts: list[str]) -> bool:
     return False
 
 
+def _has_phase10_data(session: Any, project_id: str) -> bool:
+    """Return True if Phase 10 tables contain records for this project."""
+    try:
+        from memory_engine.models.knowledge_orm import KnowledgePropositionORM
+        return session.query(KnowledgePropositionORM).filter_by(
+            project_id=project_id, is_stale=False
+        ).limit(1).count() > 0
+    except Exception:
+        return False
+
+
 def _build_unified_pack(
     req: UnifiedRetrievalRequest,
     memory_pack: Any,
     knowledge_sections: list[KnowledgeContextSection],
+    multigranular_results: list[MultiGranularitySearchResult],
     memory_traces: list[KnowledgeTraceEntry],
     knowledge_traces: list[KnowledgeTraceEntry],
 ) -> UnifiedContextPack:
@@ -312,6 +359,7 @@ def _build_unified_pack(
         )
     )
     know_tokens = sum(s.token_count for s in knowledge_sections)
+    mg_tokens = sum(max(1, len(r.content) // 4) for r in multigranular_results)
 
     return UnifiedContextPack(
         project_id=req.project_id,
@@ -324,10 +372,11 @@ def _build_unified_pack(
         procedures=getattr(memory_pack, "procedures", []),
         evidence_refs=getattr(memory_pack, "evidence_refs", []),
         knowledge_chunks=knowledge_sections,
+        multigranular_chunks=multigranular_results,
         retrieval_trace=memory_traces + knowledge_traces,
         memory_tokens=mem_tokens,
         knowledge_tokens=know_tokens,
-        total_token_estimate=mem_tokens + know_tokens,
+        total_token_estimate=mem_tokens + know_tokens + mg_tokens,
         token_budget=req.token_budget,
         memory_results_count=sum(
             len(getattr(memory_pack, a, []))
@@ -335,5 +384,6 @@ def _build_unified_pack(
                       "incidents", "procedures")
         ),
         knowledge_results_count=len(knowledge_sections),
+        multigranular_results_count=len(multigranular_results),
         cache_hit=False,
     )

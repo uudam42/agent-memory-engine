@@ -1,11 +1,16 @@
-"""SQLAlchemy 2.x ORM mapped classes for Phase 6 Knowledge Base.
+"""SQLAlchemy 2.x ORM mapped classes for Knowledge Base.
 
-Tables:
+Tables (Phase 6):
   knowledge_documents  — one row per ingested document
   knowledge_chunks     — one row per content chunk (separate from memory_nodes)
   knowledge_links      — typed links: memory↔chunk, chunk↔chunk
   knowledge_index_jobs — async/deferred indexing job tracking
   knowledge_chunks_fts — FTS5 virtual table (created via raw DDL in init_db)
+
+Tables (Phase 10 — multi-granularity):
+  knowledge_paragraphs    — coherent local context units (function, section, test cluster)
+  knowledge_propositions  — atomic factual/behavioral statements
+  knowledge_chunk_summaries — concise summaries of larger regions
 
 Separation principle: these tables never overlap with memory_nodes.
 """
@@ -17,6 +22,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -69,8 +75,31 @@ class KnowledgeDocumentORM(Base):
         DateTime(timezone=True), default=_now, onupdate=_now
     )
 
+    # Phase 10: document/module/architecture level summaries
+    document_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    module_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    architecture_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    key_symbols: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    dependencies: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    related_documents: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
     chunks: Mapped[list[KnowledgeChunkORM]] = relationship(
         "KnowledgeChunkORM",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    paragraphs: Mapped[list[KnowledgeParagraphORM]] = relationship(
+        "KnowledgeParagraphORM",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    propositions: Mapped[list[KnowledgePropositionORM]] = relationship(
+        "KnowledgePropositionORM",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    chunk_summaries: Mapped[list[KnowledgeChunkSummaryORM]] = relationship(
+        "KnowledgeChunkSummaryORM",
         back_populates="document",
         cascade="all, delete-orphan",
     )
@@ -169,4 +198,163 @@ class KnowledgeIndexJobORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: Multi-Granularity Knowledge Models
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeParagraphORM(Base):
+    """Coherent local context unit — function, section, test cluster, doc paragraph."""
+
+    __tablename__ = "knowledge_paragraphs"
+
+    paragraph_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("knowledge_documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    symbol_names: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    section_heading: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    heading_path: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    paragraph_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_start_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Branch / revision provenance
+    branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
+    source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    is_stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    superseded_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+    document: Mapped[KnowledgeDocumentORM] = relationship(
+        "KnowledgeDocumentORM", back_populates="paragraphs"
+    )
+    propositions: Mapped[list[KnowledgePropositionORM]] = relationship(
+        "KnowledgePropositionORM",
+        back_populates="paragraph",
+        cascade="all, delete-orphan",
+    )
+
+
+class KnowledgePropositionORM(Base):
+    """Atomic factual or behavioral statement — highest retrieval precision."""
+
+    __tablename__ = "knowledge_propositions"
+
+    proposition_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("knowledge_documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    paragraph_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("knowledge_paragraphs.paragraph_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+
+    proposition_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    proposition_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="implementation_detail"
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.7)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_start_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Branch / revision provenance
+    branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
+    source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    is_stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    superseded_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+    document: Mapped[KnowledgeDocumentORM] = relationship(
+        "KnowledgeDocumentORM", back_populates="propositions"
+    )
+    paragraph: Mapped[KnowledgeParagraphORM | None] = relationship(
+        "KnowledgeParagraphORM", back_populates="propositions"
+    )
+
+
+class KnowledgeChunkSummaryORM(Base):
+    """Concise summary of a cohesive source region (module, subsystem, test suite)."""
+
+    __tablename__ = "knowledge_chunk_summaries"
+
+    summary_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("knowledge_documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str | None] = mapped_column(Text, nullable=True)
+    key_symbols: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    responsibilities: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    constraints_mentioned: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    important_interactions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    granularity_level: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="chunk"
+    )  # chunk | module | document
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_start_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Branch / revision provenance
+    branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
+    source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    is_stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    superseded_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+    document: Mapped[KnowledgeDocumentORM] = relationship(
+        "KnowledgeDocumentORM", back_populates="chunk_summaries"
     )

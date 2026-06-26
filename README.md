@@ -67,6 +67,10 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 | **Git-aware synchronization** | Detects branch, HEAD commit, staged/modified files via safe read-only Git commands |
 | **Branch-aware retrieval** | Prefers memory from the current branch; falls back to mainline then global |
 | **Branch-scoped memory writes** | New memories stamped with branch name and scope; mainline promotion is explicit |
+| **Multi-granularity memory** | Four retrieval layers (proposition → paragraph → chunk → module summary) created at write-time; selected at query-time by intent |
+| **Deterministic proposition extraction** | Atomic facts extracted from docstrings, security comments, raise statements, markdown bullets — no LLM required |
+| **Intent-aware granularity routing** | `bug_fix` retrieves constraint/risk propositions; `architecture_review` retrieves module summaries |
+| **Query-time context assembly** | Proposition hits optionally expand to parent paragraphs; architecture queries attach module summaries |
 
 ---
 
@@ -392,12 +396,12 @@ tests/
 
 | Tool | Purpose |
 |---|---|
-| `retrieve_agent_context` | Retrieve memory + knowledge before a coding task |
+| `retrieve_agent_context` | Retrieve memory + knowledge before a coding task. Phase 10: pass `task_intent`, `preferred_layers`, `proposition_types` to guide granularity routing. |
 | `inspect_memory` | Drill into a MemoryNode, its children, and evidence |
 | `inspect_knowledge` | Inspect a KnowledgeChunk or source file range (redacted) |
 | `reflect_and_write` | Report validated work to the reflection pipeline |
 | `memory_status` | Project health, retrieval mode, index counts, revisions |
-| `refresh_project_knowledge` | Trigger incremental rescan (explicit use only) |
+| `refresh_project_knowledge` | Trigger incremental rescan; also builds Phase 10 proposition/paragraph/summary layers |
 
 ## MCP resources
 
@@ -493,6 +497,39 @@ Adds cosine similarity over chunk embeddings via RRF fusion.
 
 **Vector retrieval is optional.** The default local mode works without
 Qdrant, Docker, or any external service.
+
+### Phase 10: multi-granularity retrieval
+
+Active automatically when Phase 10 knowledge is indexed (created by `refresh_project_knowledge` or the normal ingest path).
+
+Four retrieval layers, created deterministically at write-time (no LLM):
+
+| Layer | Unit | Typical use |
+|---|---|---|
+| Proposition | One atomic fact (`shell=False is enforced`) | Bug fixes, security audits |
+| Paragraph | One function or heading section | Feature work, code explanation |
+| Chunk | Fixed-size content block (existing) | General keyword search |
+| Module summary | Whole-file digest with key symbols | Architecture review, onboarding |
+
+The layer selected for a query is determined by `task_intent`:
+
+```python
+# in retrieve_agent_context:
+task_intent = "bug_fix"        # → propositions first (constraint/security_rule/risk)
+task_intent = "architecture_review"  # → module summaries first
+task_intent = "feature_implementation"  # → paragraphs + propositions + summaries
+```
+
+Callers can also override directly:
+
+```python
+preferred_layers = ["proposition"]          # force proposition-only
+proposition_types = ["security_rule"]       # sub-filter by type
+```
+
+Results appear in `multigranular_chunks` alongside the existing `knowledge_chunks`.
+
+See [`docs/architecture/multigranular_memory_architecture.md`](docs/architecture/multigranular_memory_architecture.md) for the full design.
 
 ---
 
