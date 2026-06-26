@@ -33,8 +33,20 @@ from sqlalchemy.orm import Session
 
 from memory_engine.knowledge.cache import SimpleCache, get_global_cache
 from memory_engine.knowledge.chunkers import chunk_content
-from memory_engine.knowledge.fts_index import fts_delete, fts_insert
+from memory_engine.knowledge.fts_index import (
+    fts_delete,
+    fts_insert,
+    paragraph_fts_delete,
+    paragraph_fts_insert,
+    proposition_fts_delete,
+    proposition_fts_insert,
+    summary_fts_delete,
+    summary_fts_insert,
+)
+from memory_engine.knowledge.paragraph_segmenter import segment_paragraphs
+from memory_engine.knowledge.proposition_extractor import extract_propositions
 from memory_engine.knowledge.redaction import redact
+from memory_engine.knowledge.summarizer import summarize_module, summarize_paragraphs
 from memory_engine.knowledge.vector_index import InMemoryVectorIndex, KnowledgeVectorIndex
 from memory_engine.models.knowledge_domain import (
     KnowledgeIngestRequest,
@@ -42,8 +54,11 @@ from memory_engine.models.knowledge_domain import (
 )
 from memory_engine.models.knowledge_orm import (
     KnowledgeChunkORM,
+    KnowledgeChunkSummaryORM,
     KnowledgeDocumentORM,
     KnowledgeIndexJobORM,
+    KnowledgeParagraphORM,
+    KnowledgePropositionORM,
 )
 
 
@@ -110,11 +125,20 @@ class KnowledgeIngestionService:
 
         was_updated = existing is not None
 
-        # If updating — mark old chunks as stale (keep for audit)
+        # If updating — mark old chunks + Phase 10 records as stale (keep for audit)
         if was_updated and existing is not None:
             self._session.query(KnowledgeChunkORM).filter_by(
                 document_id=existing.document_id
             ).update({"index_status": "stale"})
+            self._session.query(KnowledgeParagraphORM).filter_by(
+                document_id=existing.document_id
+            ).update({"is_stale": True})
+            self._session.query(KnowledgePropositionORM).filter_by(
+                document_id=existing.document_id
+            ).update({"is_stale": True})
+            self._session.query(KnowledgeChunkSummaryORM).filter_by(
+                document_id=existing.document_id
+            ).update({"is_stale": True})
             existing.status = "outdated"
             self._session.flush()
 
@@ -208,6 +232,19 @@ class KnowledgeIngestionService:
             chunks_created += 1
             job.chunks_done += 1
 
+        # Phase 10: multi-granularity write
+        self._ingest_multigranular(
+            doc_id=doc.document_id,
+            project_id_str=project_id_str,
+            redacted_content=redacted_content,
+            source_type=req.source_type.value,
+            source_path=req.source_path,
+            branch_name=req.branch_name,
+            branch_scope=None,
+            source_revision=req.version_ref,
+            commit_sha=None,
+        )
+
         # 8. Finalize
         doc.status = "indexed"
         job.status = "done"
@@ -224,6 +261,166 @@ class KnowledgeIngestionService:
             redaction_count=redaction_count,
             index_job_id=uuid.UUID(job.job_id),
         )
+
+
+    def _ingest_multigranular(
+        self,
+        doc_id: str,
+        project_id_str: str,
+        redacted_content: str,
+        source_type: str,
+        source_path: str | None,
+        branch_name: str | None,
+        branch_scope: str | None,
+        source_revision: str | None,
+        commit_sha: str | None,
+    ) -> None:
+        """Write paragraphs, propositions, and summaries for a document."""
+        import hashlib as _hl
+
+        def _h(s: str) -> str:
+            return _hl.sha256(s.encode()).hexdigest()
+
+        # --- Paragraphs ---
+        raw_paras = segment_paragraphs(
+            redacted_content, source_type=source_type, source_path=source_path
+        )
+        para_orm_list: list[KnowledgeParagraphORM] = []
+        seen_para_hashes: set[str] = set()
+
+        for rp in raw_paras:
+            content_str = rp.content.strip()
+            if not content_str:
+                continue
+            h = _h(content_str)
+            if h in seen_para_hashes:
+                continue
+            seen_para_hashes.add(h)
+
+            para = KnowledgeParagraphORM(
+                document_id=doc_id,
+                project_id=project_id_str,
+                content=content_str,
+                summary=rp.summary,
+                symbol_names=rp.symbol_names,
+                section_heading=rp.section_heading,
+                heading_path=rp.heading_path,
+                paragraph_index=rp.paragraph_index,
+                token_count=rp.token_count,
+                content_hash=h,
+                source_path=source_path,
+                source_start_line=rp.source_start_line,
+                source_end_line=rp.source_end_line,
+                branch_name=branch_name,
+                branch_scope=branch_scope or "global",
+                source_revision=source_revision,
+                commit_sha=commit_sha,
+                is_stale=False,
+            )
+            self._session.add(para)
+            self._session.flush()
+            para_orm_list.append(para)
+
+            paragraph_fts_insert(
+                self._session,
+                paragraph_id=para.paragraph_id,
+                content=content_str,
+                summary=rp.summary,
+                section_heading=rp.section_heading,
+                symbol_names=rp.symbol_names,
+            )
+
+        # --- Propositions (extracted from full document content) ---
+        raw_props = extract_propositions(
+            redacted_content, source_type=source_type, source_path=source_path
+        )
+        seen_prop_hashes: set[str] = set()
+
+        for rp_prop in raw_props:
+            if rp_prop.content_hash in seen_prop_hashes:
+                continue
+            seen_prop_hashes.add(rp_prop.content_hash)
+
+            prop = KnowledgePropositionORM(
+                document_id=doc_id,
+                project_id=project_id_str,
+                proposition_text=rp_prop.proposition_text,
+                normalized_text=rp_prop.normalized_text,
+                proposition_type=rp_prop.proposition_type,
+                confidence=rp_prop.confidence,
+                content_hash=rp_prop.content_hash,
+                source_path=source_path,
+                source_start_line=rp_prop.source_start_line,
+                source_end_line=rp_prop.source_end_line,
+                branch_name=branch_name,
+                branch_scope=branch_scope or "global",
+                source_revision=source_revision,
+                commit_sha=commit_sha,
+                is_stale=False,
+            )
+            self._session.add(prop)
+            self._session.flush()
+
+            proposition_fts_insert(
+                self._session,
+                proposition_id=prop.proposition_id,
+                proposition_text=prop.proposition_text,
+                proposition_type=prop.proposition_type,
+            )
+
+        # --- Module-level summary ---
+        if para_orm_list:
+            # Wrap ORM list back to RawParagraph for summarizer
+            from memory_engine.knowledge.paragraph_segmenter import RawParagraph as _RP
+            raw_para_list_for_summary = [
+                _RP(
+                    content=p.content,
+                    summary=p.summary,
+                    symbol_names=p.symbol_names or [],
+                    section_heading=p.section_heading,
+                    heading_path=p.heading_path or [],
+                    paragraph_index=p.paragraph_index,
+                    source_path=p.source_path,
+                    source_start_line=p.source_start_line,
+                    source_end_line=p.source_end_line,
+                )
+                for p in para_orm_list
+            ]
+            mod_summary = summarize_module(raw_para_list_for_summary, source_path=source_path)
+            if mod_summary:
+                summ_hash = _h(mod_summary.content_hash_input)
+                summ_orm = KnowledgeChunkSummaryORM(
+                    document_id=doc_id,
+                    project_id=project_id_str,
+                    summary_text=mod_summary.summary_text,
+                    purpose=mod_summary.purpose,
+                    key_symbols=mod_summary.key_symbols,
+                    responsibilities=mod_summary.responsibilities,
+                    constraints_mentioned=mod_summary.constraints_mentioned,
+                    important_interactions=mod_summary.important_interactions,
+                    granularity_level=mod_summary.granularity_level,
+                    content_hash=summ_hash,
+                    source_path=source_path,
+                    source_start_line=mod_summary.source_start_line,
+                    source_end_line=mod_summary.source_end_line,
+                    token_count=mod_summary.token_count,
+                    branch_name=branch_name,
+                    branch_scope=branch_scope or "global",
+                    source_revision=source_revision,
+                    commit_sha=commit_sha,
+                    is_stale=False,
+                )
+                self._session.add(summ_orm)
+                self._session.flush()
+
+                summary_fts_insert(
+                    self._session,
+                    summary_id=summ_orm.summary_id,
+                    summary_text=mod_summary.summary_text,
+                    purpose=mod_summary.purpose,
+                    key_symbols=mod_summary.key_symbols,
+                    granularity_level=mod_summary.granularity_level,
+                )
 
 
 # ---------------------------------------------------------------------------
