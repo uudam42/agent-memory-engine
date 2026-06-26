@@ -350,15 +350,20 @@ def fts_search(
 
 
 def _fts_escape(query: str) -> str:
-    """Convert a natural-language query to an FTS5-safe expression.
+    """Convert a natural-language query to an FTS5-safe OR expression.
 
-    Splits on whitespace, drops empty tokens, joins with implicit AND.
-    Removes FTS5 special characters that would cause parse errors.
+    Uses OR semantics so any matching term scores a hit; BM25 ranking then
+    promotes results with more overlapping terms.  Atomic-granularity content
+    (propositions, paragraph headings) rarely contains all terms of a long
+    task description, so AND semantics produces zero results.
     """
     special = set('"-:()^*~')
+    _FTS5_OPERATORS = {"and", "or", "not"}
     tokens = [
         "".join(c for c in tok if c not in special)
         for tok in query.split()
     ]
-    tokens = [t for t in tokens if t]
-    return " ".join(tokens)
+    tokens = [t for t in tokens if t and t.lower() not in _FTS5_OPERATORS]
+    if not tokens:
+        return ""
+    return " OR ".join(tokens)
