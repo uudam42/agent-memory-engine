@@ -342,7 +342,24 @@ KnowledgeDocument + KnowledgeChunk（SQLite）
     └─ 向量 Upsert（可选，InMemoryVectorIndex 或 Qdrant）
     │
     ▼
-混合检索 → RRF 融合 → 来源质量排序 → UnifiedContextPack（占 40% Token 预算）
+混合检索 → RRF 融合 → 来源质量排序
+    │
+    ▼
+UnifiedContextPack（占 40% Token 预算）
+
+─── Phase 10：多粒度写入路径（与上述流程并行运行）──────────────────────────
+
+同一原始内容
+    │
+    ├─ paragraph_segmenter   → KnowledgeParagraphORM   → knowledge_paragraphs_fts
+    ├─ proposition_extractor → KnowledgePropositionORM → knowledge_propositions_fts
+    └─ summarizer            → KnowledgeChunkSummaryORM → knowledge_summaries_fts
+    │
+    ▼
+多粒度检索（占知识预算的 25%）
+    │
+    ▼
+UnifiedContextPack.multigranular_chunks（独立预算，不占 knowledge_chunks 配额）
 ```
 
 ---
@@ -363,6 +380,8 @@ memory_engine/
 ├── skills/                  ← Agent 行为层（召回、审查、反思）
 ├── services/                ← 领域编排（晋升、聚合）
 ├── knowledge/               ← 摄取、分块、FTS5、向量、检索、缓存
+│                               proposition_extractor、paragraph_segmenter、summarizer、
+│                               granularity_router、multigranular_search（Phase 10）
 ├── repositories/            ← 持久化抽象层
 ├── models/                  ← Pydantic 领域模型 + SQLAlchemy ORM
 │
@@ -375,7 +394,8 @@ memory_engine/
 
 docs/
 ├── architecture/            ← 系统概览、记忆生命周期、知识流水线、检索流水线、
-│                               MCP 集成、本地运行时
+│                               MCP 集成、本地运行时、
+│                               multigranular_memory_architecture（Phase 10）
 └── guides/                  ← 快速入门、配置、隐私与安全
 ```
 
