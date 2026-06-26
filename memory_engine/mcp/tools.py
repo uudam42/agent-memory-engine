@@ -102,6 +102,10 @@ def tool_retrieve_agent_context(
             current_branch=effective_branch,
             head_commit=effective_commit,
             modified_files=modified_files,
+            # Phase 10: granularity routing hints
+            task_intent=inp.task_intent,
+            preferred_layers=inp.preferred_layers,
+            proposition_types=inp.proposition_types,
         ))
 
         meta = RetrievalMeta(
@@ -125,11 +129,13 @@ def tool_retrieve_agent_context(
             "incidents": [_node_dict(n) for n in pack.incidents],
             "procedures": [_node_dict(n) for n in pack.procedures],
             "knowledge_chunks": [_chunk_section_dict(k) for k in pack.knowledge_chunks],
+            "multigranular_chunks": [_chunk_section_dict(k) for k in pack.multigranular_chunks],
             "retrieval_trace": [t.model_dump() for t in pack.retrieval_trace[:20]],
             "total_token_estimate": pack.total_token_estimate,
             "token_budget": pack.token_budget,
             "memory_results_count": pack.memory_results_count,
             "knowledge_results_count": pack.knowledge_results_count,
+            "multigranular_results_count": pack.multigranular_results_count,
             "cache_hit": pack.cache_hit,
             "meta": meta.model_dump(),
         }

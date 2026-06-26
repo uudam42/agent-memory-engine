@@ -277,6 +277,9 @@ class UnifiedContextPack(BaseModel):
     # Knowledge sections
     knowledge_chunks: list[KnowledgeContextSection] = Field(default_factory=list)
 
+    # Phase 10: multi-granularity results (propositions / paragraphs / summaries)
+    multigranular_chunks: list[MultiGranularitySearchResult] = Field(default_factory=list)
+
     # Unified trace (memory + knowledge)
     retrieval_trace: list[KnowledgeTraceEntry] = Field(default_factory=list)
 
@@ -289,6 +292,7 @@ class UnifiedContextPack(BaseModel):
     # Metadata
     memory_results_count: int = 0
     knowledge_results_count: int = 0
+    multigranular_results_count: int = 0
     cache_hit: bool = False
 
 
@@ -310,6 +314,10 @@ class UnifiedRetrievalRequest(BaseModel):
     current_branch: str | None = None
     head_commit: str | None = None
     modified_files: list[str] = Field(default_factory=list)
+    # Phase 10: multi-granularity routing hints (caller can override GranularityRouter)
+    task_intent: str = "unknown"
+    preferred_layers: list[str] = Field(default_factory=list)
+    proposition_types: list[str] | None = None
 
 
 class KnowledgeIngestRequest(BaseModel):
