@@ -66,6 +66,10 @@ Memory Engine 通过维护一棵结构化的、有证据支撑的记忆树，以
 | **Git 感知同步** | 通过只读 Git 命令检测分支、HEAD 提交、暂存/修改文件 |
 | **分支感知检索** | 优先返回当前分支的记忆，降级到主线再降级到全局 |
 | **分支范围记忆写入** | 新记忆携带分支名称和范围；主线提升需要显式确认 |
+| **多粒度记忆** | 写入时生成四个检索粒度层（命题→段落→分块→模块摘要）；查询时按意图动态选择 |
+| **确定性命题提取** | 从 docstring、安全注释、raise 语句、Markdown 列表中提取原子事实，无需调用 LLM |
+| **意图感知粒度路由** | `bug_fix` 优先召回约束/风险命题；`architecture_review` 优先召回模块摘要 |
+| **查询时上下文组装** | 命题命中可选择扩展为父段落；架构查询自动附加模块摘要 |
 
 ---
 
@@ -381,12 +385,12 @@ docs/
 
 | 工具 | 用途 |
 |---|---|
-| `retrieve_agent_context` | 编码任务前检索记忆和知识 |
+| `retrieve_agent_context` | 编码任务前检索记忆和知识。Phase 10：可传入 `task_intent`、`preferred_layers`、`proposition_types` 引导粒度路由。 |
 | `inspect_memory` | 深入审查 MemoryNode 及其子节点和证据 |
 | `inspect_knowledge` | 查看 KnowledgeChunk 或源文件范围（已脱敏） |
 | `reflect_and_write` | 向反思流水线汇报验证通过的任务结果 |
 | `memory_status` | 项目健康状态、检索模式、索引计数、版本号 |
-| `refresh_project_knowledge` | 触发增量重扫（仅在明确需要时使用） |
+| `refresh_project_knowledge` | 触发增量重扫；同时构建 Phase 10 命题/段落/摘要层 |
 
 ## MCP 资源列表
 
@@ -490,6 +494,37 @@ your-project/.memory-engine/
   }
 }
 ```
+
+### Phase 10：多粒度检索
+
+当项目完成知识摄取后自动启用。写入时确定性地创建四个粒度层（无 LLM 调用）：
+
+| 粒度层 | 单元 | 典型用途 |
+|---|---|---|
+| 命题（Proposition） | 一条原子事实（"shell=False 必须强制"） | 修 Bug、安全审查 |
+| 段落（Paragraph） | 一个函数或标题区块 | 特性开发、代码解释 |
+| 分块（Chunk） | 固定大小内容块（已有） | 通用关键词检索 |
+| 模块摘要（Summary） | 完整文件摘要 + 关键符号列表 | 架构审查、上手引导 |
+
+查询时通过 `task_intent` 自动路由到最优粒度层：
+
+```python
+# 在 retrieve_agent_context 中传入：
+task_intent = "bug_fix"              # → 优先召回命题（约束/安全规则/风险）
+task_intent = "architecture_review"  # → 优先召回模块摘要
+task_intent = "feature_implementation"  # → 段落 + 命题 + 摘要全覆盖
+```
+
+也可以直接覆盖路由器决策：
+
+```python
+preferred_layers = ["proposition"]        # 强制只召回命题
+proposition_types = ["security_rule"]     # 按命题类型过滤
+```
+
+结果以 `multigranular_chunks` 字段返回，与已有的 `knowledge_chunks` 并列，不占用后者的 Token 预算。
+
+详见 [`docs/architecture/multigranular_memory_architecture.md`](docs/architecture/multigranular_memory_architecture.md)。
 
 ---
 
