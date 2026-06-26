@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from memory_engine.db.session import engine
 from memory_engine.models.orm import Base  # noqa: F401 — registers all mapped classes
-import memory_engine.models.knowledge_orm  # noqa: F401 — registers Phase 6 ORM classes
+import memory_engine.models.knowledge_orm  # noqa: F401 — registers Phase 6 + Phase 10 ORM classes
 
 
 # Phase 9: branch-aware columns added to existing tables.
@@ -44,6 +44,13 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("knowledge_chunks", "branch_scope", "VARCHAR(32) DEFAULT 'global'"),
     ("knowledge_chunks", "source_revision", "VARCHAR(64)"),
     ("knowledge_chunks", "commit_sha", "VARCHAR(64)"),
+    # Phase 10: knowledge_documents — document/module/architecture summaries
+    ("knowledge_documents", "document_summary", "TEXT"),
+    ("knowledge_documents", "module_summary", "TEXT"),
+    ("knowledge_documents", "architecture_summary", "TEXT"),
+    ("knowledge_documents", "key_symbols", "TEXT DEFAULT '[]'"),
+    ("knowledge_documents", "dependencies", "TEXT DEFAULT '[]'"),
+    ("knowledge_documents", "related_documents", "TEXT DEFAULT '[]'"),
 ]
 
 
@@ -62,11 +69,12 @@ def apply_schema_migrations(conn) -> None:  # type: ignore[type-arg]
 
 
 def create_fts_tables(conn) -> None:  # type: ignore[type-arg]
-    """Create FTS5 virtual table for knowledge chunk lexical search.
+    """Create FTS5 virtual tables for all knowledge granularities.
 
     Uses IF NOT EXISTS — safe to call multiple times.
     FTS5 is built into Python's sqlite3 by default.
     """
+    # Phase 6: chunk-level FTS5
     conn.execute(text("""
         CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts
         USING fts5(
@@ -76,6 +84,40 @@ def create_fts_tables(conn) -> None:  # type: ignore[type-arg]
             symbols_text,
             module_text,
             tags_text,
+            tokenize = 'porter unicode61'
+        )
+    """))
+    # Phase 10: paragraph-level FTS5
+    conn.execute(text("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_paragraphs_fts
+        USING fts5(
+            paragraph_id UNINDEXED,
+            content,
+            summary,
+            section_heading,
+            symbols_text,
+            tokenize = 'porter unicode61'
+        )
+    """))
+    # Phase 10: proposition-level FTS5
+    conn.execute(text("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_propositions_fts
+        USING fts5(
+            proposition_id UNINDEXED,
+            proposition_text,
+            proposition_type UNINDEXED,
+            tokenize = 'porter unicode61'
+        )
+    """))
+    # Phase 10: chunk/module summary FTS5
+    conn.execute(text("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_summaries_fts
+        USING fts5(
+            summary_id UNINDEXED,
+            summary_text,
+            purpose,
+            symbols_text,
+            granularity_level UNINDEXED,
             tokenize = 'porter unicode61'
         )
     """))

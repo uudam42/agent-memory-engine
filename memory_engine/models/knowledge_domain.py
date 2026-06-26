@@ -340,3 +340,126 @@ class KnowledgeSearchRequest(BaseModel):
     source_types: list[SourceType] | None = None
     token_budget: int = 3000
     max_results: int = 10
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: Multi-Granularity Domain Models
+# ---------------------------------------------------------------------------
+
+
+class PropositionType(StrEnum):
+    behavior = "behavior"
+    constraint = "constraint"
+    architecture = "architecture"
+    security_rule = "security_rule"
+    implementation_detail = "implementation_detail"
+    decision = "decision"
+    procedure = "procedure"
+    risk = "risk"
+    test_evidence = "test_evidence"
+
+
+class GranularityLevel(StrEnum):
+    proposition = "proposition"
+    paragraph = "paragraph"
+    chunk = "chunk"
+    module = "module"
+    document = "document"
+
+
+class KnowledgeParagraph(BaseModel):
+    model_config = {"from_attributes": True}
+
+    paragraph_id: UUID
+    document_id: UUID
+    project_id: UUID
+    content: str
+    summary: str | None
+    symbol_names: list[str]
+    section_heading: str | None
+    heading_path: list[str]
+    paragraph_index: int
+    token_count: int
+    content_hash: str
+    source_path: str | None
+    source_start_line: int | None
+    source_end_line: int | None
+    branch_name: str | None
+    branch_scope: str | None
+    source_revision: str | None
+    commit_sha: str | None
+    is_stale: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeProposition(BaseModel):
+    model_config = {"from_attributes": True}
+
+    proposition_id: UUID
+    document_id: UUID
+    paragraph_id: UUID | None
+    project_id: UUID
+    proposition_text: str
+    normalized_text: str
+    proposition_type: PropositionType
+    confidence: float
+    content_hash: str
+    source_path: str | None
+    source_start_line: int | None
+    source_end_line: int | None
+    branch_name: str | None
+    branch_scope: str | None
+    source_revision: str | None
+    commit_sha: str | None
+    is_stale: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeChunkSummary(BaseModel):
+    model_config = {"from_attributes": True}
+
+    summary_id: UUID
+    document_id: UUID
+    project_id: UUID
+    summary_text: str
+    purpose: str | None
+    key_symbols: list[str]
+    responsibilities: list[str]
+    constraints_mentioned: list[str]
+    important_interactions: list[str]
+    granularity_level: GranularityLevel
+    content_hash: str
+    source_path: str | None
+    source_start_line: int | None
+    source_end_line: int | None
+    token_count: int
+    branch_name: str | None
+    branch_scope: str | None
+    source_revision: str | None
+    commit_sha: str | None
+    is_stale: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class MultiGranularitySearchResult(BaseModel):
+    """A retrieved unit from any granularity layer."""
+
+    result_id: str
+    result_type: str   # proposition | paragraph | chunk | chunk_summary | module_summary
+    granularity: GranularityLevel
+    content: str
+    score: float
+    score_breakdown: dict[str, float] = Field(default_factory=dict)
+    source_path: str | None = None
+    source_start_line: int | None = None
+    source_end_line: int | None = None
+    branch_name: str | None = None
+    branch_scope: str | None = None
+    commit_sha: str | None = None
+    is_stale: bool = False
+    parent_id: str | None = None
+    selection_reason: str = ""
+    expanded_from: str | None = None
