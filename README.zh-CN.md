@@ -71,21 +71,27 @@ Memory Engine 通过维护一棵结构化的、有证据支撑的记忆树，以
 
 ## 快速开始
 
-### 前置条件：安装 `uv`（只需一次）
-
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/uudam42/agent-memory-engine.git
+cd agent-memory-engine
+bash scripts/install.sh
 ```
 
-### 1. 克隆 Memory Engine
+安装脚本会自动检查 Git 和 Python 3.11+，在缺失时安装 `uv`，解析依赖，
+运行健康检查，并输出已填入真实路径的 Cursor / Claude Code MCP 配置块。
 
-```bash
-git clone https://github.com/your-org/memory-engine
-```
+### 默认部署模式
 
-### 2. 复制 MCP 配置块
+Agent Memory Engine 以 **stdio MCP server** 方式在本地运行。默认配置使用
+Python、`uv` 和本地 SQLite/FTS5 存储。标准本地工作流不需要 Docker、云端
+数据库或外部嵌入服务。
 
-**方式 A — 显式指定项目根目录：**
+### MCP Stdio 模式 *（推荐）*
+
+通过 MCP 客户端使用 `uv run` 在本地运行，支持 Cursor、Claude Code 及任何
+实现了 MCP stdio 传输协议的客户端。
+
+**方式 A — 显式指定项目根目录（Cursor 及大多数客户端）：**
 
 ```json
 {
@@ -95,7 +101,7 @@ git clone https://github.com/your-org/memory-engine
       "args": [
         "run",
         "--directory",
-        "/memory-engine的绝对路径",
+        "/agent-memory-engine的绝对路径",
         "memory-engine-mcp",
         "--project-root",
         "/目标项目的绝对路径"
@@ -105,7 +111,7 @@ git clone https://github.com/your-org/memory-engine
 }
 ```
 
-**方式 B — 通过环境变量指定项目根目录：**
+**方式 B — 通过环境变量指定项目根目录（Claude Code）：**
 
 ```json
 {
@@ -115,7 +121,7 @@ git clone https://github.com/your-org/memory-engine
       "args": [
         "run",
         "--directory",
-        "/memory-engine的绝对路径",
+        "/agent-memory-engine的绝对路径",
         "memory-engine-mcp"
       ],
       "env": {
@@ -127,14 +133,37 @@ git clone https://github.com/your-org/memory-engine
 ```
 
 > **注意：** 请将所有路径替换为本机上的真实路径。
-> 配置文件的位置和工作区变量支持因客户端不同而有所差异：
+> 配置文件的位置因客户端不同而有所差异：
 > - **Cursor：** `.cursor/mcp.json` 或全局 Cursor MCP 设置
 > - **Claude Code：** `~/.claude.json` 或项目级配置文件
-> - 具体位置请参阅对应客户端的 MCP 文档。
+> - 运行 `bash scripts/install.sh` 可直接获得已填入实际路径的配置块。
 
-### 3. 打开目标项目，开始编码
+### FastAPI / HTTP 模式 *（可选）*
 
-完成。Memory Engine 在后台自动完成所有初始化工作。
+仓库中包含一个 FastAPI 应用（`memory_engine/main.py`），用于直接 API 实验、
+演示或容器化环境。**标准 MCP 工作流不需要它。**
+
+```bash
+uvicorn memory_engine.main:app --reload
+# API 文档：http://localhost:8000/docs
+```
+
+### 手动安装 *（高级用户）*
+
+```bash
+# 安装 uv（只需一次）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 安装依赖
+uv sync
+
+# 直接运行 MCP 服务端
+uv run memory-engine-mcp --project-root /path/to/project --log-level DEBUG
+```
+
+### 打开目标项目，开始编码
+
+完成。Memory Engine 在首次 MCP 连接时自动完成引导、索引和记忆管理的全部初始化工作。
 
 ---
 
@@ -607,7 +636,7 @@ pytest tests/test_phase7.py -v
 pytest -k "recall" -v
 ```
 
-目前共 215 个测试，全部确定性通过，无需外部服务。
+目前共 259 个测试，全部确定性通过，无需外部服务。
 
 ---
 
@@ -643,16 +672,16 @@ pytest -k "recall" -v
 ## 开发者指南
 
 ```bash
-# 安装开发依赖
-pip install -e ".[dev]"
+# 安装开发依赖（包含 pytest、httpx）
+uv sync --extra dev
 
 # 运行测试
-pytest -v
+uv run pytest -v
 
-# 启动 FastAPI 服务（开发 / 直接 API 调用）
+# 启动 FastAPI 服务（开发 / 直接 API 调用，非 MCP 工作流必须）
 uvicorn memory_engine.main:app --reload
 # API 文档：http://localhost:8000/docs
 
-# 直接运行 MCP 服务端（调试用）
+# 直接运行 MCP 服务端（stdio，连接断开前持续阻塞）
 uv run memory-engine-mcp --project-root /path/to/project --log-level DEBUG
 ```

@@ -153,9 +153,9 @@ def tool_inspect_memory(
         svc = InspectService(session)
         from memory_engine.models.domain import InspectRequest
         result = svc.inspect(InspectRequest(
-            project_name=ctx.project_root.name,
-            node_id=inp.memory_id,
-            depth=inp.inspection_depth,
+            project_id=uuid.UUID(ctx.get_project_id()),
+            memory_id=inp.memory_id,
+            inspection_depth=inp.inspection_depth,
             include_evidence=inp.include_evidence,
             current_task=inp.current_task or "",
         ))

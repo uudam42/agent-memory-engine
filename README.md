@@ -72,21 +72,28 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 
 ## Quick Start
 
-### Prerequisite: install `uv` once
-
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/uudam42/agent-memory-engine.git
+cd agent-memory-engine
+bash scripts/install.sh
 ```
 
-### 1. Clone Memory Engine
+The installer checks Git and Python 3.11+, installs `uv` when needed, resolves
+dependencies, runs a health check, and prints a ready-to-copy MCP configuration
+for Cursor or Claude Code.
 
-```bash
-git clone https://github.com/your-org/memory-engine
-```
+### Default Deployment Model
 
-### 2. Copy an MCP configuration block
+Agent Memory Engine runs locally as a **stdio MCP server**. The default setup
+uses Python, `uv`, and local SQLite/FTS5 storage. Docker, cloud databases, and
+external embedding services are not required for the standard local workflow.
 
-**Option A — explicit project root:**
+### MCP Stdio Mode *(recommended)*
+
+Runs locally through the MCP client using `uv run`. Supported by Cursor,
+Claude Code, and any client that implements the MCP stdio transport.
+
+**Option A — explicit project root (Cursor, most clients):**
 
 ```json
 {
@@ -96,7 +103,7 @@ git clone https://github.com/your-org/memory-engine
       "args": [
         "run",
         "--directory",
-        "/absolute/path/to/memory-engine",
+        "/absolute/path/to/agent-memory-engine",
         "memory-engine-mcp",
         "--project-root",
         "/absolute/path/to/your-project"
@@ -106,7 +113,7 @@ git clone https://github.com/your-org/memory-engine
 }
 ```
 
-**Option B — project root via environment variable:**
+**Option B — project root via environment variable (Claude Code):**
 
 ```json
 {
@@ -116,7 +123,7 @@ git clone https://github.com/your-org/memory-engine
       "args": [
         "run",
         "--directory",
-        "/absolute/path/to/memory-engine",
+        "/absolute/path/to/agent-memory-engine",
         "memory-engine-mcp"
       ],
       "env": {
@@ -131,11 +138,36 @@ git clone https://github.com/your-org/memory-engine
 > Config file location and workspace-variable support differ by client:
 > - **Cursor:** `.cursor/mcp.json` or global Cursor MCP settings
 > - **Claude Code:** `~/.claude.json` or project-level config
-> - Consult your client's MCP documentation for exact placement.
+> - Run `bash scripts/install.sh` to get a pre-filled config block with your actual paths.
 
-### 3. Open your target project and start coding
+### FastAPI / HTTP Mode *(optional)*
 
-That's it. Memory Engine starts automatically and handles everything else.
+A FastAPI application (`memory_engine/main.py`) is included for direct API
+experimentation, demos, or containerized environments. It is **not required**
+for the standard MCP workflow.
+
+```bash
+uvicorn memory_engine.main:app --reload
+# API docs at http://localhost:8000/docs
+```
+
+### Manual setup *(advanced)*
+
+```bash
+# Install uv once
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync
+
+# Run MCP server directly
+uv run memory-engine-mcp --project-root /path/to/project --log-level DEBUG
+```
+
+### Open your target project and start coding
+
+That's it. Memory Engine starts automatically on the first MCP connection and
+handles bootstrap, indexing, and memory management from there.
 
 ---
 
@@ -630,7 +662,7 @@ pytest tests/test_phase6.py -v
 pytest -k "recall" -v
 ```
 
-215 tests currently passing. All deterministic. No external services required.
+259 tests currently passing. All deterministic. No external services required.
 
 ---
 
@@ -666,16 +698,16 @@ pytest -k "recall" -v
 ## Development
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+# Install dev dependencies (includes pytest, httpx)
+uv sync --extra dev
 
 # Run tests
-pytest -v
+uv run pytest -v
 
-# Start FastAPI service (dev / direct API use)
+# Start FastAPI service (dev / direct API use — not required for MCP)
 uvicorn memory_engine.main:app --reload
 # API docs at http://localhost:8000/docs
 
-# Run MCP server directly
+# Run MCP server directly (stdio, blocks until client disconnects)
 uv run memory-engine-mcp --project-root /path/to/project --log-level DEBUG
 ```
