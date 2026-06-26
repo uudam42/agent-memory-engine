@@ -612,7 +612,8 @@ def test_project_context_get_git_context():
     ctx = ProjectContext(repo_root)
     git_ctx = ctx.get_git_context()
     assert git_ctx.is_repository
-    assert git_ctx.current_branch is not None
+    # CI uses detached HEAD so current_branch may be None; head_commit is always present
+    assert git_ctx.head_commit is not None
 
 
 def test_project_context_get_git_context_refresh():
