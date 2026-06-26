@@ -350,6 +350,20 @@ hybrid retrieval → RRF fusion → source-quality ranking
     │
     ▼
 UnifiedContextPack (40% of token budget)
+
+─── Phase 10: multi-granularity write path (runs in parallel) ───────────────
+
+same raw content
+    │
+    ├─ paragraph_segmenter  → KnowledgeParagraphORM  → knowledge_paragraphs_fts
+    ├─ proposition_extractor → KnowledgePropositionORM → knowledge_propositions_fts
+    └─ summarizer           → KnowledgeChunkSummaryORM → knowledge_summaries_fts
+    │
+    ▼
+multigranular retrieval (25% of knowledge budget)
+    │
+    ▼
+UnifiedContextPack.multigranular_chunks (independent of knowledge_chunks budget)
 ```
 
 ---
@@ -370,6 +384,8 @@ memory_engine/
 ├── skills/                  ← agent-facing behaviors (recall, inspect, reflect)
 ├── services/                ← domain orchestration (promotion, consolidation)
 ├── knowledge/               ← ingestion, chunking, FTS5, vector, search, fusion, cache
+│                               proposition_extractor, paragraph_segmenter, summarizer,
+│                               granularity_router, multigranular_search  (Phase 10)
 ├── repositories/            ← persistence abstraction (memory_node, candidate, evidence)
 ├── models/                  ← Pydantic domain + SQLAlchemy ORM
 │
@@ -382,7 +398,8 @@ memory_engine/
 
 docs/
 ├── architecture/            ← system-overview, memory-lifecycle, knowledge-pipeline,
-│                               retrieval-pipeline, mcp-integration, local-runtime
+│                               retrieval-pipeline, mcp-integration, local-runtime,
+│                               multigranular_memory_architecture  (Phase 10)
 └── guides/                  ← quickstart, configuration, privacy-and-security
 
 tests/
