@@ -444,6 +444,21 @@ class KnowledgeChunkSummary(BaseModel):
     updated_at: datetime
 
 
+class MultiGranularSearchRequest(BaseModel):
+    """Request for multi-granularity knowledge retrieval (Phase 10)."""
+
+    project_id: UUID
+    query: str
+    current_files: list[str] = Field(default_factory=list)
+    current_symbols: list[str] = Field(default_factory=list)
+    task_intent: str = "unknown"     # TaskIntent value
+    preferred_layers: list[str] = Field(default_factory=list)   # override router
+    proposition_types: list[str] | None = None                  # override router
+    max_results: int = 15
+    token_budget: int = 4000
+    include_stale: bool = False
+
+
 class MultiGranularitySearchResult(BaseModel):
     """A retrieved unit from any granularity layer."""
 
