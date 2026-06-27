@@ -39,6 +39,7 @@ from memory_engine.mcp.schemas import (
     InspectMemoryInput,
     ReflectAndWriteInput,
     RetrieveContextInput,
+    SeedProjectInput,
 )
 from memory_engine.mcp.tools import (
     tool_inspect_knowledge,
@@ -47,6 +48,7 @@ from memory_engine.mcp.tools import (
     tool_reflect_and_write,
     tool_refresh_project_knowledge,
     tool_retrieve_agent_context,
+    tool_seed_project_context,
 )
 from memory_engine.mcp.resources import (
     resource_agent_policy,
@@ -248,6 +250,38 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
     )
     async def refresh_project_knowledge() -> dict:  # type: ignore[type-arg]
         return tool_refresh_project_knowledge(ctx)
+
+    @mcp_server.tool(
+        name="seed_project_context",
+        description=(
+            "Seed initial memory nodes from structured project context to eliminate "
+            "the cold-start problem on new projects. Call ONCE when first setting up "
+            "a project — do not call on every task. "
+            "Provide: description (what the project does), constraints (hard rules that "
+            "must never be violated), decisions (key architectural choices already made), "
+            "tech_stack (main languages/frameworks), conventions (team workflow rules). "
+            "All fields are optional — if description is omitted, auto-extraction from "
+            "README.md is attempted. Nodes are written directly as active with full "
+            "confidence. Returns count and titles of created nodes."
+        ),
+    )
+    async def seed_project_context(
+        description: str = "",
+        constraints: list[str] | None = None,
+        decisions: list[str] | None = None,
+        tech_stack: list[str] | None = None,
+        conventions: list[str] | None = None,
+        skip_auto_extract: bool = False,
+    ) -> dict:  # type: ignore[type-arg]
+        inp = SeedProjectInput(
+            description=description,
+            constraints=constraints or [],
+            decisions=decisions or [],
+            tech_stack=tech_stack or [],
+            conventions=conventions or [],
+            skip_auto_extract=skip_auto_extract,
+        )
+        return tool_seed_project_context(ctx, inp)
 
     # ── Resources ────────────────────────────────────────────────────────────
 

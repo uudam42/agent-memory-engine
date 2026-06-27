@@ -34,6 +34,8 @@ from memory_engine.mcp.schemas import (
     RetrievalMeta,
     RetrieveContextInput,
     RetrieveContextOutput,
+    SeedProjectInput,
+    SeedProjectOutput,
 )
 from memory_engine.models.domain import (
     ReflectionInput,
@@ -425,6 +427,57 @@ def tool_memory_status(ctx: ProjectContext) -> dict[str, Any]:
 def tool_refresh_project_knowledge(ctx: ProjectContext) -> dict[str, Any]:
     """Trigger safe incremental rescan of changed sources."""
     return ctx.incremental_refresh()
+
+
+# ---------------------------------------------------------------------------
+# 7. seed_project_context
+# ---------------------------------------------------------------------------
+
+
+def tool_seed_project_context(
+    ctx: ProjectContext,
+    inp: SeedProjectInput,
+) -> dict[str, Any]:
+    """Seed initial memory nodes from structured project context.
+
+    Call once when setting up a new project to eliminate the cold-start
+    problem. Nodes are written directly to active status with full confidence
+    because the source is an authoritative human description.
+    """
+    ctx.ensure_bootstrapped()
+    session = ctx.get_session()
+    try:
+        from memory_engine.skills.seeding import ProjectSeedingService, SeedInput
+        svc = ProjectSeedingService(session)
+        result = svc.seed(SeedInput(
+            project_id=uuid.UUID(ctx.get_project_id()),
+            project_root=ctx.project_root,
+            description=inp.description,
+            constraints=inp.constraints,
+            decisions=inp.decisions,
+            tech_stack=inp.tech_stack,
+            conventions=inp.conventions,
+            skip_auto_extract=inp.skip_auto_extract,
+        ))
+        # Bump memory revision so subsequent retrieve calls see fresh data
+        if result.nodes_created > 0:
+            state_mgr = ctx.get_state_manager()
+            state = state_mgr.load()
+            state.bump_memory()
+            state_mgr.save()
+            ctx.get_cache().invalidate_project(ctx.get_project_id())
+
+        return SeedProjectOutput(
+            nodes_created=result.nodes_created,
+            module_nodes=result.module_nodes,
+            constraint_nodes=result.constraint_nodes,
+            decision_nodes=result.decision_nodes,
+            procedure_nodes=result.procedure_nodes,
+            node_titles=result.node_titles,
+            skipped_reason=result.skipped_reason,
+        ).model_dump()
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
