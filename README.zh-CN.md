@@ -72,7 +72,7 @@ Memory Engine 通过维护一棵结构化的、有证据支撑的记忆树，以
 | **查询时上下文组装** | 命题命中可选择扩展为父段落；架构查询自动附加模块摘要 |
 | **记忆保留与压缩** | 候选到期、过期/被替代归档、多来源压缩（完整溯源）——不做物理删除 |
 | **受保护记忆类型** | `constraint`、`security_rule`、`architecture`、`decision` 永远不会被自动归档或压缩 |
-| **Agent 记忆策略** | 为每个项目生成规范的 `AGENT_MEMORY_POLICY.md`；支持 Claude Code 和 Cursor 适配器 |
+| **Agent 记忆策略** | 首次 bootstrap 时自动写入 `CLAUDE.md` / `.cursor/rules/`；支持 CLI 手动控制 |
 | **Windows 安装脚本** | PowerShell 安装脚本（`scripts/install.ps1`），无需 Docker、WSL 或云服务 |
 
 ---
@@ -466,25 +466,31 @@ docs/
 
 ### Phase 11：Agent 记忆策略
 
-为合规 MCP Coding Agent 生成规范化工作流策略文件：
+**策略自动安装，无需手动操作。** 首次 bootstrap（MCP 首次工具调用）时，Memory Engine
+自动将工作流策略块写入项目的 `CLAUDE.md`（Claude Code），同时生成
+`.memory-engine/generated/AGENT_MEMORY_POLICY.md`。
+
+策略块包含两个工具的明确调用/跳过判断规则：
+
+- **`retrieve_agent_context`** — 修改生产代码、测试、CI、依赖、配置文件时调用；调试
+  bug 时调用；涉及 ≥ 2 个文件或本 session 首次接触某子系统时调用。纯解释（无文件编辑）、
+  单行拼写修复、或本 session 已为同一任务调用过时跳过。
+- **`reflect_and_write`** — `tests_passed` 或 `build_success` 且修改 ≥ 2 个文件或做出
+  非平凡架构决策时调用。测试失败、任务已回滚、仅修改单个 trivial 文件、或未执行验证时跳过。
+
+如需手动控制或安装 Cursor 适配器：
 
 ```bash
-# 生成策略
+# 重新生成策略（幂等，标记外的用户内容不受影响）
 memory policy generate --project-root .
 
-# 安装客户端适配器
+# 手动安装或更新客户端适配器
 memory policy install --project-root . --client claude-code
 memory policy install --project-root . --client cursor
 
-# 查看状态
+# 查看适配器安装状态
 memory policy status --project-root .
 ```
-
-策略文件写入 `.memory-engine/generated/AGENT_MEMORY_POLICY.md`，使用稳定的
-begin/end 标记（幂等操作，用户自定义内容不受影响）。
-
-**合规性声明：** MCP 服务器在技术上无法强制所有任意客户端或模型调用工具。
-策略文件为支持项目级指令的客户端提供强约束的工作流引导。
 
 详见 [`docs/agent_memory_policy.md`](docs/agent_memory_policy.md)。
 
@@ -753,7 +759,7 @@ pytest tests/test_phase7.py -v
 pytest -k "recall" -v
 ```
 
-目前共 460 个测试，全部确定性通过，无需外部服务。
+目前共 462 个测试，全部确定性通过，无需外部服务。
 
 ---
 
