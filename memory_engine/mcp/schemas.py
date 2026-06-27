@@ -71,6 +71,8 @@ class ReflectAndWriteInput(BaseModel):
     # Phase 9: branch context for scoped memory writes
     current_branch: str | None = None
     head_commit: str | None = None
+    # Phase 11: allow agent to pass intent explicitly instead of relying on inference
+    task_intent: str | None = None
 
 
 # ---------------------------------------------------------------------------

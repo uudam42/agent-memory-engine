@@ -213,6 +213,7 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
         test_summary: str | None = None,
         current_branch: str | None = None,
         head_commit: str | None = None,
+        task_intent: str | None = None,
     ) -> dict:  # type: ignore[type-arg]
         inp = ReflectAndWriteInput(
             task=task,
@@ -223,6 +224,7 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
             test_summary=test_summary,
             current_branch=current_branch,
             head_commit=head_commit,
+            task_intent=task_intent,
         )
         return tool_reflect_and_write(ctx, inp)
 
