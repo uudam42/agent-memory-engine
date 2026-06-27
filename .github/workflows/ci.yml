@@ -41,6 +41,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Python (package validation)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
       - name: Validate PowerShell installer syntax
         shell: pwsh
         run: |
@@ -62,13 +73,14 @@ jobs:
       - name: Validate Windows path escaping in config examples
         shell: pwsh
         run: |
-          # Run installer with -SkipHealthCheck and a fake project root
-          # We expect it to print JSON with double-backslash escaping
+          # Run installer against a temp dir with only pyproject.toml.
+          # -SkipSync skips uv sync (temp dir has no source files).
+          # -SkipHealthCheck skips uv run checks.
+          # We verify that backslashes in the path are escaped to \\ in JSON output.
           $tmpDir = New-Item -ItemType Directory -Path "$env:TEMP\mem-smoke-$([guid]::NewGuid())"
           Copy-Item pyproject.toml $tmpDir\pyproject.toml
 
-          # Capture output and check for \\ in JSON blocks
-          $output = & .\scripts\install.ps1 -ProjectRoot $tmpDir.FullName -SkipHealthCheck -SkipUvInstall 2>&1
+          $output = & .\scripts\install.ps1 -ProjectRoot $tmpDir.FullName -SkipSync -SkipHealthCheck 2>&1
           $outputStr = $output | Out-String
           if ($outputStr -match '\\\\') {
             Write-Host "Path escaping in JSON output: OK (double backslash found)"
@@ -78,17 +90,6 @@ jobs:
 
           # Cleanup
           Remove-Item -Recurse -Force $tmpDir
-
-      - name: Set up Python (package validation)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install dependencies
-        run: uv sync --extra dev
 
       - name: Validate MCP entry point on Windows
         shell: pwsh

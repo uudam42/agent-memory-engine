@@ -17,6 +17,9 @@
 .PARAMETER SkipUvInstall
     Skip automatic uv installation if uv is missing.
 
+.PARAMETER SkipSync
+    Skip the uv sync (dependency installation) step.
+
 .PARAMETER SkipHealthCheck
     Skip the post-install health check.
 
@@ -33,6 +36,7 @@
     .\scripts\install.ps1
     .\scripts\install.ps1 -ProjectRoot "C:\Users\you\my-project"
     .\scripts\install.ps1 -SkipUvInstall
+    .\scripts\install.ps1 -SkipSync
     .\scripts\install.ps1 -SkipHealthCheck
     .\scripts\install.ps1 -ConfigureCursor
     .\scripts\install.ps1 -Help
@@ -42,6 +46,7 @@
 param(
     [string]  $ProjectRoot      = "",
     [switch]  $SkipUvInstall,
+    [switch]  $SkipSync,
     [switch]  $SkipHealthCheck,
     [switch]  $ConfigureCursor,
     [switch]  $ConfigureClaudeCode,
@@ -265,18 +270,22 @@ Write-Success "uv found: $uvVersion"
 # Install project dependencies
 # ---------------------------------------------------------------------------
 
-Write-Step "Installing project dependencies..."
-Push-Location $RepoRoot
-try {
-    & uv sync
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "uv sync failed. See output above for details."
-        exit 1
+if ($SkipSync) {
+    Write-Info "Skipping dependency installation (-SkipSync)"
+} else {
+    Write-Step "Installing project dependencies..."
+    Push-Location $RepoRoot
+    try {
+        & uv sync
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "uv sync failed. See output above for details."
+            exit 1
+        }
+    } finally {
+        Pop-Location
     }
-} finally {
-    Pop-Location
+    Write-Success "Dependencies installed"
 }
-Write-Success "Dependencies installed"
 
 # ---------------------------------------------------------------------------
 # Health check
