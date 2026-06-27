@@ -7,6 +7,11 @@ Phase 9 addition:
   apply_schema_migrations() adds branch-aware columns to existing tables via
   ALTER TABLE ADD COLUMN. SQLite supports ADD COLUMN and ignores duplicates via
   the "duplicate column name" error which we catch and discard.
+
+Phase 11 addition:
+  Retention columns: memory_nodes.(archived_at, archived_reason,
+  compacted_into_id, last_retrieved_at, retrieval_count) and
+  memory_candidates.(expires_at, expiry_reason).
 """
 
 from sqlalchemy import text
@@ -51,6 +56,14 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("knowledge_documents", "key_symbols", "TEXT DEFAULT '[]'"),
     ("knowledge_documents", "dependencies", "TEXT DEFAULT '[]'"),
     ("knowledge_documents", "related_documents", "TEXT DEFAULT '[]'"),
+    # Phase 11: retention columns
+    ("memory_nodes", "archived_at", "DATETIME"),
+    ("memory_nodes", "archived_reason", "VARCHAR(512)"),
+    ("memory_nodes", "compacted_into_id", "VARCHAR(36)"),
+    ("memory_nodes", "last_retrieved_at", "DATETIME"),
+    ("memory_nodes", "retrieval_count", "INTEGER DEFAULT 0"),
+    ("memory_candidates", "expires_at", "DATETIME"),
+    ("memory_candidates", "expiry_reason", "VARCHAR(512)"),
 ]
 
 

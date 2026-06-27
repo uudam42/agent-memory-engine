@@ -260,6 +260,62 @@ def resource_branch_memory_summary(ctx: ProjectContext) -> str:
         session.close()
 
 
+def resource_retention_status(ctx: ProjectContext) -> str:
+    """Return retention lifecycle diagnostics as compact text (Phase 11)."""
+    ctx.ensure_bootstrapped()
+    session = ctx.get_session()
+    try:
+        from memory_engine.services.retention import MemoryRetentionService
+        svc = MemoryRetentionService(session, ctx.get_project_id())
+        report = svc.generate_report()
+        d = report.to_dict()
+        lines = ["# Retention Status\n"]
+        lines.append(f"generated_at: {d['ran_at']}")
+        lines.append("")
+        lines.append("## Memory Counts")
+        for state, count in d["counts"].items():
+            lines.append(f"  {state}: {count}")
+        if d["archive_actions"]:
+            lines.append(f"\n## Archive Candidates ({len(d['archive_actions'])})")
+            for a in d["archive_actions"][:10]:
+                lines.append(f"  - {a['title'][:60]} — {a['reason']}")
+        if d["expiry_actions"]:
+            lines.append(f"\n## Expiry Candidates ({len(d['expiry_actions'])})")
+            for a in d["expiry_actions"][:10]:
+                lines.append(f"  - {a['title'][:60]} — {a['reason']}")
+        if d["warnings"]:
+            lines.append("\n## Warnings")
+            for w in d["warnings"]:
+                lines.append(f"  - {w}")
+        return "\n".join(lines)
+    finally:
+        session.close()
+
+
+def resource_compaction_report(ctx: ProjectContext) -> str:
+    """Return compaction group candidates as compact text (Phase 11)."""
+    ctx.ensure_bootstrapped()
+    session = ctx.get_session()
+    try:
+        from memory_engine.services.retention import MemoryRetentionService
+        svc = MemoryRetentionService(session, ctx.get_project_id())
+        groups = svc.identify_compaction_groups()
+        lines = ["# Compaction Report\n"]
+        lines.append(f"compaction_groups_found: {len(groups)}")
+        for i, group in enumerate(groups[:10], 1):
+            kind = group[0].kind
+            lines.append(f"\n## Group {i} [{kind}] ({len(group)} memories)")
+            for node in group[:5]:
+                lines.append(f"  - {node.title[:80]}")
+            if len(group) > 5:
+                lines.append(f"  ... and {len(group) - 5} more")
+        if not groups:
+            lines.append("\nNo compaction groups found.")
+        return "\n".join(lines)
+    finally:
+        session.close()
+
+
 def resource_sync_status(ctx: ProjectContext) -> str:
     """Return incremental sync and Git synchronization status."""
     state_mgr = ctx.get_state_manager()

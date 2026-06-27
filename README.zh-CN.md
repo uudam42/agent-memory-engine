@@ -70,15 +70,27 @@ Memory Engine 通过维护一棵结构化的、有证据支撑的记忆树，以
 | **确定性命题提取** | 从 docstring、安全注释、raise 语句、Markdown 列表中提取原子事实，无需调用 LLM |
 | **意图感知粒度路由** | `bug_fix` 优先召回约束/风险命题；`architecture_review` 优先召回模块摘要 |
 | **查询时上下文组装** | 命题命中可选择扩展为父段落；架构查询自动附加模块摘要 |
+| **记忆保留与压缩** | 候选到期、过期/被替代归档、多来源压缩（完整溯源）——不做物理删除 |
+| **受保护记忆类型** | `constraint`、`security_rule`、`architecture`、`decision` 永远不会被自动归档或压缩 |
+| **Agent 记忆策略** | 为每个项目生成规范的 `AGENT_MEMORY_POLICY.md`；支持 Claude Code 和 Cursor 适配器 |
+| **Windows 安装脚本** | PowerShell 安装脚本（`scripts/install.ps1`），无需 Docker、WSL 或云服务 |
 
 ---
 
 ## 快速开始
 
+**macOS / Linux：**
 ```bash
 git clone https://github.com/uudam42/agent-memory-engine.git
 cd agent-memory-engine
 bash scripts/install.sh
+```
+
+**Windows（PowerShell）：**
+```powershell
+git clone https://github.com/uudam42/agent-memory-engine.git
+cd agent-memory-engine
+.\scripts\install.ps1
 ```
 
 安装脚本会自动检查 Git 和 Python 3.11+，在缺失时安装 `uv`，解析依赖，
@@ -306,13 +318,37 @@ ConsolidationService.update_ancestors()
 
 ### 节点状态说明
 
-| 状态 | 含义 |
-|---|---|
-| `candidate` | 已暂存，待晋升决策 |
-| `active` | 活跃，参与召回 |
-| `stale` | 已过时，保留历史记录 |
-| `superseded` | 已被更新的节点替代 |
-| `needs_review` | 检测到冲突，建议人工审查 |
+| 状态 | 含义 | 默认检索 |
+|---|---|---|
+| `candidate` | 已暂存，待晋升决策 | 排除 |
+| `active` | 活跃，参与召回 | 包含 |
+| `stale` | 已过时，保留历史记录 | 降权 |
+| `superseded` | 已被更新的节点替代 | 排除 |
+| `needs_review` | 检测到冲突，建议人工审查 | 排除 |
+| `archived` | 历史/审计专用（Phase 11） | 排除 |
+| `compacted` | 多来源压缩摘要（Phase 11） | 包含（附溯源） |
+| `expired` | 候选超期未晋升（Phase 11） | 排除 |
+
+### Phase 11：记忆保留
+
+记忆不会无限增长。`MemoryRetentionService` 管理生命周期状态迁移：
+
+```bash
+# 诊断（只读）
+memory retention status <project>
+memory retention report <project>
+
+# 执行（默认 dry-run）
+memory retention run <project>
+memory retention run <project> --no-dry-run
+
+# 还原已归档的记忆
+memory retention restore <project> <memory-id>
+```
+
+**受保护类型**（`constraint`、`security_rule`、`architecture`、`decision`）永远不会被自动归档或压缩。
+
+详见 [`docs/memory_retention_compaction.md`](docs/memory_retention_compaction.md)。
 
 ---
 
@@ -425,6 +461,32 @@ docs/
 | `memory://project/current/git-context` | 当前 Git 状态（分支、HEAD、暂存/修改文件，不含远程 URL） |
 | `memory://project/current/branch-memory-summary` | 按分支范围组织的记忆 |
 | `memory://project/current/sync-status` | 增量同步状态与索引新鲜度 |
+| `memory://project/current/retention-status` | 生命周期计数、归档/到期候选诊断（Phase 11） |
+| `memory://project/current/compaction-report` | 压缩分组候选（Phase 11） |
+
+### Phase 11：Agent 记忆策略
+
+为合规 MCP Coding Agent 生成规范化工作流策略文件：
+
+```bash
+# 生成策略
+memory policy generate --project-root .
+
+# 安装客户端适配器
+memory policy install --project-root . --client claude-code
+memory policy install --project-root . --client cursor
+
+# 查看状态
+memory policy status --project-root .
+```
+
+策略文件写入 `.memory-engine/generated/AGENT_MEMORY_POLICY.md`，使用稳定的
+begin/end 标记（幂等操作，用户自定义内容不受影响）。
+
+**合规性声明：** MCP 服务器在技术上无法强制所有任意客户端或模型调用工具。
+策略文件为支持项目级指令的客户端提供强约束的工作流引导。
+
+详见 [`docs/agent_memory_policy.md`](docs/agent_memory_policy.md)。
 
 ---
 
@@ -691,22 +753,22 @@ pytest tests/test_phase7.py -v
 pytest -k "recall" -v
 ```
 
-目前共 259 个测试，全部确定性通过，无需外部服务。
+目前共 460 个测试，全部确定性通过，无需外部服务。
 
 ---
 
 ## 局限性与未来工作
 
 - **持久化本地向量后端** — 当前 InMemoryVectorIndex 在进程重启后不保留数据
-- **可选 Qdrant 后端** — 接口已定义，客户端默认未安装
+- **可选 Qdrant 后端** — 接口已定义，客户端默认未安装；启用后支持跨语言语义检索
 - **PyPI 发布** — `pip install memory-engine-mcp` 暂不可用
 - **二进制打包** — 暂无二进制安装包
-- **IDE 插件** — 暂无 Cursor / VS Code 扩展
 - **Streamable HTTP 远程模式** — 目前仅支持 stdio，暂不支持团队共享 HTTP 传输
 - **团队共享记忆** — 每个项目拥有隔离的本地存储，暂不支持跨团队共享
 - **认证与权限** — 暂无用户级或团队级访问控制
 - **更丰富的代码解析** — 目前基于行范围分块，暂不支持 AST 感知解析
 - **大型仓库基准测试** — 尚未在 Monorepo 规模下验证
+- **保留任务调度** — `memory retention run` 需显式执行，暂无后台守护进程
 
 ---
 

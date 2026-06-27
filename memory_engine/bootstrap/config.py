@@ -55,6 +55,33 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "expose_git_remote_url": False,
         "redact_git_identity": True,
     },
+    "memory_retention": {
+        "enabled": True,
+        "candidate_expiry_days": 30,
+        "inactive_archive_days": 120,
+        "stale_archive_days": 180,
+        "compaction": {
+            "enabled": True,
+            "min_related_memories": 3,
+            "min_age_days": 14,
+            "require_same_parent_scope": True,
+            "require_same_memory_type": True,
+            "preserve_original_evidence": True,
+            "auto_archive_source_memories": True,
+        },
+        "branch_cleanup": {
+            "enabled": True,
+            "archive_deleted_branch_memories": True,
+            "archive_merged_branch_memories_after_days": 30,
+            "preserve_promoted_mainline_knowledge": True,
+        },
+        "protected_memory_types": [
+            "constraint",
+            "security_rule",
+            "architecture",
+            "decision",
+        ],
+    },
     "knowledge": {
         "include": [
             "README.md",

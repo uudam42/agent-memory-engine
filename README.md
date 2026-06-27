@@ -71,20 +71,32 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 | **Deterministic proposition extraction** | Atomic facts extracted from docstrings, security comments, raise statements, markdown bullets — no LLM required |
 | **Intent-aware granularity routing** | `bug_fix` retrieves constraint/risk propositions; `architecture_review` retrieves module summaries |
 | **Query-time context assembly** | Proposition hits optionally expand to parent paragraphs; architecture queries attach module summaries |
+| **Memory retention & compaction** | Candidate expiry, stale/superseded archival, multi-source compaction with full lineage — no physical deletion |
+| **Protected memory types** | `constraint`, `security_rule`, `architecture`, `decision` excluded from all auto-archive and auto-compaction |
+| **Agent memory policy** | Canonical `AGENT_MEMORY_POLICY.md` generated per project; Claude Code and Cursor adapters installable via CLI |
+| **Windows installer** | PowerShell installer (`scripts/install.ps1`) for Windows-native setup without Docker, WSL, or cloud services |
 
 ---
 
 ## Quick Start
 
+**macOS / Linux:**
 ```bash
 git clone https://github.com/uudam42/agent-memory-engine.git
 cd agent-memory-engine
 bash scripts/install.sh
 ```
 
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/uudam42/agent-memory-engine.git
+cd agent-memory-engine
+.\scripts\install.ps1
+```
+
 The installer checks Git and Python 3.11+, installs `uv` when needed, resolves
 dependencies, runs a health check, and prints a ready-to-copy MCP configuration
-for Cursor or Claude Code.
+for Cursor or Claude Code. No Docker, WSL, or cloud services required.
 
 ### Default Deployment Model
 
@@ -310,13 +322,38 @@ cache invalidated + memory_revision bumped
 
 ### Node statuses
 
-| Status | Meaning |
-|---|---|
-| `candidate` | Staged, pending promotion decision |
-| `active` | Live, returned in recall |
-| `stale` | Outdated; preserved for history |
-| `superseded` | Replaced by newer node |
-| `needs_review` | Flagged conflict; human review recommended |
+| Status | Meaning | Default retrieval |
+|---|---|---|
+| `candidate` | Staged, pending promotion decision | Excluded |
+| `active` | Live, returned in recall | Included |
+| `stale` | Outdated; preserved for history | Penalized |
+| `superseded` | Replaced by newer node | Excluded |
+| `needs_review` | Flagged conflict; human review recommended | Excluded |
+| `archived` | Historical / audit-only (Phase 11) | Excluded |
+| `compacted` | Synthesis of source memories (Phase 11) | Included with lineage |
+| `expired` | Candidate never promoted past window (Phase 11) | Excluded |
+
+### Phase 11: Memory Retention
+
+Memory does not grow indefinitely. The `MemoryRetentionService` runs lifecycle transitions:
+
+```bash
+# Diagnose
+memory retention status <project>
+memory retention report <project>
+
+# Apply (dry-run by default)
+memory retention run <project>
+memory retention run <project> --no-dry-run
+
+# Restore an archived memory
+memory retention restore <project> <memory-id>
+```
+
+**Protected types** (`constraint`, `security_rule`, `architecture`, `decision`) are
+never auto-archived or auto-compacted.
+
+See [`docs/memory_retention_compaction.md`](docs/memory_retention_compaction.md).
 
 ---
 
@@ -433,6 +470,33 @@ tests/
 | `memory://project/current/git-context` | Current Git state (branch, HEAD, staged/modified files — no remote URLs) |
 | `memory://project/current/branch-memory-summary` | Memories organized by branch scope |
 | `memory://project/current/sync-status` | Incremental sync and index freshness |
+| `memory://project/current/retention-status` | Lifecycle counts, archive/expiry candidates (Phase 11) |
+| `memory://project/current/compaction-report` | Compaction group candidates (Phase 11) |
+
+### Phase 11: Agent Memory Policy
+
+Generate a canonical workflow policy for compliant MCP coding agents:
+
+```bash
+# Generate policy
+memory policy generate --project-root .
+
+# Install client adapters
+memory policy install --project-root . --client claude-code
+memory policy install --project-root . --client cursor
+
+# Check status
+memory policy status --project-root .
+```
+
+The generated policy is written to `.memory-engine/generated/AGENT_MEMORY_POLICY.md`
+using stable begin/end markers (idempotent, user content preserved).
+
+**Compliance limitation:** The MCP server cannot technically force every arbitrary
+client or model to invoke tools. The policy provides strong workflow guidance for
+clients that honour project-level instructions.
+
+See [`docs/agent_memory_policy.md`](docs/agent_memory_policy.md).
 
 ---
 
@@ -716,22 +780,22 @@ pytest tests/test_phase6.py -v
 pytest -k "recall" -v
 ```
 
-259 tests currently passing. All deterministic. No external services required.
+460 tests currently passing. All deterministic. No external services required.
 
 ---
 
 ## Limitations and future work
 
 - **Persistent local vector backend** — current InMemoryVectorIndex does not survive process restarts
-- **Optional Qdrant backend** — interface exists; client not installed by default
+- **Optional Qdrant backend** — interface exists; client not installed by default; enables semantic cross-lingual retrieval
 - **PyPI publishing** — `pip install memory-engine-mcp` not yet available
 - **Binary packaging** — no binary installer yet
-- **Client-specific installers** — no Cursor/VS Code extension yet
 - **Streamable HTTP remote mode** — stdio only; no team-shared HTTP transport yet
 - **Team-shared memory** — each project has isolated local storage; no shared team memory yet
 - **Authentication and permissions** — no per-user or per-team access control yet
 - **Richer code parsing** — chunking is line-range based; AST-aware parsing is future work
 - **Larger repository benchmarks** — not yet validated at monorepo scale
+- **Retention scheduling** — `memory retention run` is explicit; no background daemon
 
 ---
 
