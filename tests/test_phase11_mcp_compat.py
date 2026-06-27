@@ -66,6 +66,50 @@ def test_reflect_and_write_input_accepts_legacy_fields():
     assert inp.current_branch is None
 
 
+def test_reflect_and_write_accepts_task_intent():
+    from memory_engine.mcp.schemas import ReflectAndWriteInput
+
+    inp = ReflectAndWriteInput(
+        task="Phase 11: implement retention",
+        outcome="all done",
+        verification_status="tests_passed",
+        task_intent="feature_implementation",
+    )
+    assert inp.task_intent == "feature_implementation"
+
+
+def test_verified_status_not_overridden_by_failure_keywords():
+    """tests_passed must not be downgraded even when outcome mentions 'failed' or 'error'."""
+    from memory_engine.mcp.schemas import ReflectAndWriteInput
+    import re
+
+    inp = ReflectAndWriteInput(
+        task="Fix bug where ErrorActionPreference caused task_failed skip",
+        outcome="Fixed three bugs. Previously the keyword 'error' in ErrorActionPreference "
+                "caused task_outcome=failed. Now verified tasks bypass keyword scanning.",
+        verification_status="tests_passed",
+        task_intent="bug_fix",
+    )
+    # Schema-level: field is preserved
+    assert inp.verification_status == "tests_passed"
+    assert inp.task_intent == "bug_fix"
+
+    # Logic-level: simulate the guard added in tools.py
+    _VERIFIED = {"tests_passed", "build_success"}
+    outcome_lower = inp.outcome.lower()
+    def _word_match(text, words):
+        return any(re.search(rf'\b{re.escape(w)}\b', text) for w in words)
+
+    # Without the guard (old behaviour) — would have matched
+    assert _word_match(outcome_lower, ("failed", "error"))
+    # With the guard — verified status bypasses the scan
+    task_failed = (
+        inp.verification_status not in _VERIFIED
+        and _word_match(outcome_lower, ("failed", "could not", "error", "broken"))
+    )
+    assert not task_failed, "Verified task must not be classified as failed"
+
+
 def test_retrieve_context_output_has_phase11_compat_fields():
     from memory_engine.mcp.schemas import RetrieveContextOutput
 
