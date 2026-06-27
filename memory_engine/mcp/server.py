@@ -51,9 +51,11 @@ from memory_engine.mcp.tools import (
 from memory_engine.mcp.resources import (
     resource_agent_policy,
     resource_architecture,
+    resource_compaction_report,
     resource_constraints,
     resource_memory_tree_summary,
     resource_recent_incidents,
+    resource_retention_status,
     resource_status,
     resource_git_context,
     resource_branch_memory_summary,
@@ -283,6 +285,15 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
     @mcp_server.resource("memory://project/current/sync-status")
     async def get_sync_status() -> str:
         return resource_sync_status(ctx)
+
+    # Phase 11: Retention & compaction diagnostics
+    @mcp_server.resource("memory://project/current/retention-status")
+    async def get_retention_status() -> str:
+        return resource_retention_status(ctx)
+
+    @mcp_server.resource("memory://project/current/compaction-report")
+    async def get_compaction_report() -> str:
+        return resource_compaction_report(ctx)
 
     return mcp_server
 

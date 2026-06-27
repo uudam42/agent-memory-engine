@@ -466,5 +466,182 @@ def debug_tree(project_name: str = typer.Argument(...)) -> None:
     console.print(text or "(empty)")
 
 
+# ---------------------------------------------------------------------------
+# Phase 11 — memory retention
+# ---------------------------------------------------------------------------
+
+retention_app = typer.Typer(help="Memory retention lifecycle commands", no_args_is_help=True)
+app.add_typer(retention_app, name="retention")
+
+
+def _get_retention_svc(project_name: str):  # type: ignore[no-untyped-def]
+    from memory_engine.services.retention import MemoryRetentionService
+    project = _find_project(project_name)
+    session = _get_session()
+    svc = MemoryRetentionService(session, str(project.id))
+    return svc, session
+
+
+@retention_app.command("status")
+def retention_status(
+    project_name: str = typer.Argument(..., help="Project name"),
+) -> None:
+    """Show retention diagnostics for a project."""
+    from memory_engine.services.retention import MemoryRetentionService
+    project = _find_project(project_name)
+    with _get_session() as session:
+        svc = MemoryRetentionService(session, str(project.id))
+        report = svc.generate_report()
+
+    table = Table(title=f"Retention Status — {project_name}", show_header=True)
+    table.add_column("State", style="bold")
+    table.add_column("Count", justify="right")
+    counts = report.to_dict()["counts"]
+    for state, count in counts.items():
+        style = "green" if state == "active" else ("yellow" if state in ("stale", "needs_review") else "dim")
+        table.add_row(state.replace("_", " ").title(), f"[{style}]{count}[/{style}]")
+    console.print(table)
+    if report.warnings:
+        for w in report.warnings:
+            rprint(f"[yellow]⚠[/yellow] {w}")
+
+
+@retention_app.command("report")
+def retention_report(
+    project_name: str = typer.Argument(..., help="Project name"),
+) -> None:
+    """Print full retention report (archive/expiry/compaction candidates)."""
+    from memory_engine.services.retention import MemoryRetentionService
+    project = _find_project(project_name)
+    with _get_session() as session:
+        svc = MemoryRetentionService(session, str(project.id))
+        report = svc.generate_report()
+
+    console.print(Syntax(json.dumps(report.to_dict(), indent=2), "json", theme="monokai"))
+
+
+@retention_app.command("run")
+def retention_run(
+    project_name: str = typer.Argument(..., help="Project name"),
+    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Simulate only"),
+) -> None:
+    """Run retention lifecycle (expiry, archival, compaction)."""
+    from memory_engine.services.retention import MemoryRetentionService
+    project = _find_project(project_name)
+    with _get_session() as session:
+        svc = MemoryRetentionService(session, str(project.id))
+        report = svc.run(dry_run=dry_run)
+        if not dry_run:
+            session.commit()
+
+    mode = "[yellow]DRY RUN[/yellow]" if dry_run else "[green]APPLIED[/green]"
+    rprint(f"\n{mode} — Retention cycle complete")
+    rprint(f"  Archive actions: {len(report.archive_actions)}")
+    rprint(f"  Expiry actions:  {len(report.expiry_actions)}")
+    rprint(f"  Compaction groups found: {report.compaction_groups_found}")
+    rprint(f"  Compactions applied: {len(report.compaction_results)}")
+    if dry_run:
+        rprint("\n[dim]Pass --no-dry-run to apply changes.[/dim]")
+
+
+@retention_app.command("restore")
+def retention_restore(
+    project_name: str = typer.Argument(..., help="Project name"),
+    memory_id: str = typer.Argument(..., help="Memory node UUID to restore"),
+) -> None:
+    """Restore an archived memory node to active status."""
+    from memory_engine.services.retention import MemoryRetentionService
+    project = _find_project(project_name)
+    with _get_session() as session:
+        svc = MemoryRetentionService(session, str(project.id))
+        node = svc.restore_memory(memory_id)
+        if node is None:
+            rprint(f"[red]Memory not found:[/red] {memory_id}")
+            raise typer.Exit(1)
+        session.commit()
+    rprint(f"[green]✓[/green] Restored: [bold]{node.title}[/bold] → status=active")
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 — memory policy
+# ---------------------------------------------------------------------------
+
+policy_app = typer.Typer(help="Agent memory policy generation and installation", no_args_is_help=True)
+app.add_typer(policy_app, name="policy")
+
+
+def _resolve_root(project_root: Optional[str]) -> "Path":
+    from pathlib import Path
+    if project_root:
+        return Path(project_root).resolve()
+    # Try git-based resolution first
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, shell=False, check=True,
+        )
+        return Path(result.stdout.strip())
+    except Exception:
+        return Path(".").resolve()
+
+
+@policy_app.command("generate")
+def policy_generate(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+    mcp_server: str = typer.Option("memory-engine", "--mcp-server"),
+) -> None:
+    """Generate the canonical AGENT_MEMORY_POLICY.md."""
+    from memory_engine.policy.generator import generate_policy
+    root = _resolve_root(project_root)
+    path = generate_policy(root, mcp_server)
+    rprint(f"[green]✓[/green] Policy written: [bold]{path}[/bold]")
+
+
+@policy_app.command("install")
+def policy_install(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+    client: str = typer.Option(..., "--client", "-c", help="claude-code | cursor"),
+    mcp_server: str = typer.Option("memory-engine", "--mcp-server"),
+) -> None:
+    """Install client-specific policy adapter (claude-code or cursor)."""
+    from memory_engine.policy.installer import install_claude_code, install_cursor
+    root = _resolve_root(project_root)
+    if client == "claude-code":
+        path = install_claude_code(root, mcp_server)
+    elif client == "cursor":
+        path = install_cursor(root, mcp_server)
+    else:
+        rprint(f"[red]Unknown client:[/red] {client}. Use 'claude-code' or 'cursor'.")
+        raise typer.Exit(1)
+    rprint(f"[green]✓[/green] Installed [{client}] adapter: [bold]{path}[/bold]")
+
+
+@policy_app.command("status")
+def policy_status_cmd(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+) -> None:
+    """Show policy generation and adapter installation status."""
+    from memory_engine.policy.installer import adapter_status
+    root = _resolve_root(project_root)
+    status = adapter_status(root)
+    console.print(Syntax(json.dumps(status, indent=2), "json", theme="monokai"))
+
+
+@policy_app.command("remove")
+def policy_remove(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+    client: str = typer.Option(..., "--client", "-c", help="claude-code | cursor"),
+) -> None:
+    """Remove a generated policy block from a client adapter file."""
+    from memory_engine.policy.installer import remove_adapter
+    root = _resolve_root(project_root)
+    result = remove_adapter(root, client)
+    if result:
+        rprint(f"[green]✓[/green] Removed [{client}] policy block from {result}")
+    else:
+        rprint(f"[dim]No [{client}] policy block found to remove.[/dim]")
+
+
 if __name__ == "__main__":
     app()

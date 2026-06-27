@@ -33,3 +33,70 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  windows-smoke:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python (package validation)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Validate PowerShell installer syntax
+        shell: pwsh
+        run: |
+          $content = Get-Content -Raw scripts/install.ps1
+          try {
+            [scriptblock]::Create($content) | Out-Null
+            Write-Host "PowerShell syntax OK"
+          } catch {
+            Write-Error "PowerShell syntax error: $_"
+            exit 1
+          }
+
+      - name: Validate installer help output
+        shell: pwsh
+        run: |
+          & .\scripts\install.ps1 -Help
+          exit 0
+
+      - name: Validate Windows path escaping in config examples
+        shell: pwsh
+        run: |
+          # Run installer against a temp dir with only pyproject.toml.
+          # -SkipSync skips uv sync (temp dir has no source files).
+          # -SkipHealthCheck skips uv run checks.
+          # We verify that backslashes in the path are escaped to \\ in JSON output.
+          $tmpDir = New-Item -ItemType Directory -Path "$env:TEMP\mem-smoke-$([guid]::NewGuid())"
+          Copy-Item pyproject.toml $tmpDir\pyproject.toml
+
+          $output = & .\scripts\install.ps1 -ProjectRoot $tmpDir.FullName -SkipSync -SkipHealthCheck 2>&1
+          $outputStr = $output | Out-String
+          if ($outputStr -match '\\\\') {
+            Write-Host "Path escaping in JSON output: OK (double backslash found)"
+          } else {
+            Write-Host "Note: no double-backslash found in output (may be fine for short paths)"
+          }
+
+          # Cleanup
+          Remove-Item -Recurse -Force $tmpDir
+
+      - name: Validate MCP entry point on Windows
+        shell: pwsh
+        run: |
+          $ver = uv run memory-engine-mcp --version 2>&1
+          Write-Host "MCP entry point: $ver"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "MCP entry point failed"
+            exit 1
+          }

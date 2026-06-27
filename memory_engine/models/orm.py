@@ -9,6 +9,13 @@ Stage 2 additions to memory_nodes:
 Phase 3 additions:
   - memory_nodes.status enlarged to VARCHAR(32) to fit 'needs_review'
   - memory_candidates table (staging area)
+
+Phase 11 additions (Memory Retention & Compaction):
+  - memory_nodes: archived_at, archived_reason, compacted_into_id,
+                  last_retrieved_at, retrieval_count
+  - memory_candidates: expires_at, expiry_reason
+  - status values extended: 'archived', 'compacted'
+  - memory_relations.relation_type extended: 'compaction_source'
 """
 
 from __future__ import annotations
@@ -94,6 +101,13 @@ class MemoryNodeORM(Base):
     branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="global")
     source_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
     branch_promotion_eligible: Mapped[bool] = mapped_column(Integer, nullable=False, default=0)
+
+    # Phase 11: retention metadata
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    compacted_into_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    last_retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retrieval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
@@ -183,5 +197,9 @@ class MemoryCandidateORM(Base):
     branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     branch_scope: Mapped[str | None] = mapped_column(String(32), nullable=True, default="current_branch")
+
+    # Phase 11: candidate expiry
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expiry_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="candidates")
