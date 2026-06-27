@@ -258,19 +258,27 @@ def tool_reflect_and_write(
     except ValueError:
         ver_status = VerificationStatus.unverified
 
-    # Map outcome string to enum — use word-boundary regex to avoid false
-    # positives like "ErrorActionPreference" matching "error".
+    # Map outcome string to enum.
+    # If the agent explicitly declared a verified status, trust it — do NOT let
+    # keyword scanning of the outcome text override an explicit tests_passed /
+    # build_success declaration.  Bug fix descriptions legitimately contain
+    # words like "failed" or "error" when describing what was wrong, and
+    # substring matching caused those tasks to be silently skipped.
     import re as _re
+    _VERIFIED_STATUSES = {"tests_passed", "build_success"}
     task_outcome = TaskOutcome.completed  # default
     outcome_lower = inp.outcome.lower()
     def _word_match(text: str, words: tuple) -> bool:
         return any(_re.search(rf'\b{_re.escape(w)}\b', text) for w in words)
-    if _word_match(outcome_lower, ("failed", "could not", "error", "broken")):
-        task_outcome = TaskOutcome.failed
-    elif _word_match(outcome_lower, ("revert", "rolled back")):
-        task_outcome = TaskOutcome.reverted
-    elif _word_match(outcome_lower, ("partial", "incomplete", "progress")):
-        task_outcome = TaskOutcome.partially_completed
+    if inp.verification_status not in _VERIFIED_STATUSES:
+        # Only scan outcome text for failure signals when the agent has NOT
+        # explicitly verified the task.
+        if _word_match(outcome_lower, ("failed", "could not", "error", "broken")):
+            task_outcome = TaskOutcome.failed
+        elif _word_match(outcome_lower, ("revert", "rolled back")):
+            task_outcome = TaskOutcome.reverted
+        elif _word_match(outcome_lower, ("partial", "incomplete", "progress")):
+            task_outcome = TaskOutcome.partially_completed
 
     # Phase 9: resolve branch info for the reflection
     git_ctx = ctx.get_git_context()
