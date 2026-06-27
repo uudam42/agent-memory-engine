@@ -31,16 +31,45 @@ _CLAUDE_MD_END = "<!-- END:MEMORY_ENGINE_POLICY -->"
 
 def _claude_md_block(policy_path: Path, mcp_server_name: str = "memory-engine") -> str:
     return f"""{_CLAUDE_MD_BEGIN}
-## Memory Engine Workflow Policy
+## Memory Engine — Agent Workflow Policy
 
-See full policy: [{policy_path.name}]({policy_path})
+This project uses [Agent Memory Engine](https://github.com/uudam42/agent-memory-engine)
+for persistent coding memory. Follow these rules exactly.
 
-**Before any non-trivial coding task:** call `{mcp_server_name}:retrieve_agent_context`
+### `{mcp_server_name}:retrieve_agent_context` — BEFORE non-trivial work
 
-**After successful validated non-trivial work:** call `{mcp_server_name}:reflect_and_write`
+**Call when the task involves any of:**
+- Editing production code, tests, CI, build scripts, dependencies, or config
+- Debugging a failure or investigating unexpected behaviour
+- Touching a subsystem not visited yet in this session
+- Changing ≥ 2 files, or any design / architecture decision
+- Security, auth, schema, retry, state-machine, or persistence logic
 
-Non-trivial = editing code, tests, config, APIs, debugging, architecture decisions,
-multi-file changes, or security/persistence behaviour. When uncertain: non-trivial.
+**Skip when ALL of these are true:**
+- Pure explanation with no file edits planned
+- Single-file, single-line typo / whitespace fix with no logic change
+- Already called for the same task in this session
+
+Pass `task_intent` for better results: `bug_fix`, `feature_implementation`,
+`architecture_review`, `refactor`. Include `current_files` and `current_symbols`.
+
+### `{mcp_server_name}:reflect_and_write` — AFTER verified non-trivial work
+
+**Call when ALL of these are true:**
+- `verification_status` is `tests_passed` or `build_success`
+- ≥ 2 files changed, OR a non-trivial architectural decision was made
+- Task is complete — not exploratory, not partially done
+
+**Skip when ANY of these is true:**
+- Tests failed or the task was reverted
+- Only a single trivial file changed (typo, comment wording)
+- Work is exploratory / no committed changes
+- No validation was run
+
+Pass `task_intent` (same value used in retrieve) and `changed_files` list.
+Do NOT inflate `verification_status` — report what actually ran.
+
+Full policy: `{policy_path}`
 {_CLAUDE_MD_END}"""
 
 

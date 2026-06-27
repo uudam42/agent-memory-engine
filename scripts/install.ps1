@@ -338,8 +338,8 @@ if ($ConfigureClaudeCode -or $ConfigureCursor) {
 
     if ($ConfigureClaudeCode) {
         try {
-            & uv run --directory $RepoRoot memory policy install --project-root $RepoRoot --client claude-code
-            Write-Success "Claude Code policy adapter installed"
+            & uv run --directory $RepoRoot memory policy install --project-root $ProjectRoot --client claude-code
+            Write-Success "Claude Code policy adapter installed in $ProjectRoot\CLAUDE.md"
         } catch {
             Write-Warn "Claude Code adapter installation failed: $_"
         }
@@ -347,8 +347,8 @@ if ($ConfigureClaudeCode -or $ConfigureCursor) {
 
     if ($ConfigureCursor) {
         try {
-            & uv run --directory $RepoRoot memory policy install --project-root $RepoRoot --client cursor
-            Write-Success "Cursor policy adapter installed"
+            & uv run --directory $RepoRoot memory policy install --project-root $ProjectRoot --client cursor
+            Write-Success "Cursor policy adapter installed in $ProjectRoot\.cursor\rules\"
         } catch {
             Write-Warn "Cursor adapter installation failed: $_"
         }
@@ -420,14 +420,17 @@ Write-Host ""
 Write-Host "  1. Copy the MCP configuration block above into your editor settings." -ForegroundColor Cyan
 Write-Host "     Replace <PATH_TO_YOUR_PROJECT> with the project you want to give memory." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  2. Optional: generate the agent policy document:" -ForegroundColor Cyan
-Write-Host "     uv run --directory $RepoRoot memory policy generate --project-root <YOUR_PROJECT>" -ForegroundColor Gray
+Write-Host "  2. Paste into Claude Code (~\.claude\claude.json) or Cursor (settings > MCP)." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  3. Optional: install Claude Code adapter:" -ForegroundColor Cyan
-Write-Host "     .\scripts\install.ps1 -ConfigureClaudeCode -ProjectRoot <YOUR_PROJECT>" -ForegroundColor Gray
+Write-Host "  3. Restart your coding agent client." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  4. Optional: install Cursor adapter:" -ForegroundColor Cyan
-Write-Host "     .\scripts\install.ps1 -ConfigureCursor -ProjectRoot <YOUR_PROJECT>" -ForegroundColor Gray
+Write-Host "  4. Agent workflow policy (CLAUDE.md / .cursor/rules):" -ForegroundColor Cyan
+Write-Host "     On first use, Memory Engine will automatically write a workflow policy" -ForegroundColor White
+Write-Host "     into your project's CLAUDE.md. This tells the agent exactly when to call" -ForegroundColor White
+Write-Host "     retrieve_agent_context and reflect_and_write." -ForegroundColor White
+Write-Host "     To install it immediately (before first use):" -ForegroundColor White
+Write-Host "     uv run --directory $RepoRoot memory policy install ``" -ForegroundColor Gray
+Write-Host "       --project-root <YOUR_PROJECT> --client claude-code" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  Documentation: README.md" -ForegroundColor Cyan
 Write-Host ""
