@@ -77,7 +77,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--log-level", default="WARNING", help="Logging level (default: WARNING)")
     p.add_argument("--disable-auto-index", action="store_true", help="Skip indexing on start")
     p.add_argument("--privacy-mode", action="store_true", help="Extra-strict privacy mode")
-    p.add_argument("--version", action="version", version="memory-engine 0.1.0 (Phase 9)")
+    p.add_argument("--version", action="version", version="memory-engine 0.1.0 (Phase 10)")
     return p.parse_args(argv)
 
 
@@ -109,7 +109,13 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
             "Bootstraps the project automatically on first use. "
             "Pass current_branch and head_commit to enable branch-aware retrieval "
             "(Phase 9): memories from the current branch are ranked higher than "
-            "mainline or unrelated branches."
+            "mainline or unrelated branches. "
+            "Phase 10 — multi-granularity routing: pass task_intent (e.g. 'bug_fix', "
+            "'architecture_review', 'feature_implementation') to route retrieval to "
+            "the optimal knowledge granularity layer (proposition / paragraph / "
+            "module summary). Pass preferred_layers to override the router, and "
+            "proposition_types to filter by type (e.g. 'security_rule', 'constraint', "
+            "'risk', 'architecture', 'decision'). Results appear in multigranular_chunks."
         ),
     )
     async def retrieve_agent_context(
@@ -119,6 +125,10 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
         token_budget: int = 6000,
         current_branch: str | None = None,
         head_commit: str | None = None,
+        # Phase 10: multi-granularity routing
+        task_intent: str = "unknown",
+        preferred_layers: list[str] | None = None,
+        proposition_types: list[str] | None = None,
     ) -> dict:  # type: ignore[type-arg]
         inp = RetrieveContextInput(
             task=task,
@@ -127,6 +137,9 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
             token_budget=token_budget,
             current_branch=current_branch,
             head_commit=head_commit,
+            task_intent=task_intent,
+            preferred_layers=preferred_layers or [],
+            proposition_types=proposition_types,
         )
         return tool_retrieve_agent_context(ctx, inp)
 
