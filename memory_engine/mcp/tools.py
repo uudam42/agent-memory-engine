@@ -258,14 +258,18 @@ def tool_reflect_and_write(
     except ValueError:
         ver_status = VerificationStatus.unverified
 
-    # Map outcome string to enum
+    # Map outcome string to enum — use word-boundary regex to avoid false
+    # positives like "ErrorActionPreference" matching "error".
+    import re as _re
     task_outcome = TaskOutcome.completed  # default
     outcome_lower = inp.outcome.lower()
-    if any(w in outcome_lower for w in ("failed", "could not", "error", "broken")):
+    def _word_match(text: str, words: tuple) -> bool:
+        return any(_re.search(rf'\b{_re.escape(w)}\b', text) for w in words)
+    if _word_match(outcome_lower, ("failed", "could not", "error", "broken")):
         task_outcome = TaskOutcome.failed
-    elif any(w in outcome_lower for w in ("revert", "rolled back")):
+    elif _word_match(outcome_lower, ("revert", "rolled back")):
         task_outcome = TaskOutcome.reverted
-    elif any(w in outcome_lower for w in ("partial", "incomplete", "progress")):
+    elif _word_match(outcome_lower, ("partial", "incomplete", "progress")):
         task_outcome = TaskOutcome.partially_completed
 
     # Phase 9: resolve branch info for the reflection
@@ -285,6 +289,14 @@ def tool_reflect_and_write(
     session = ctx.get_session()
     try:
         svc = PostTaskService(session)
+        # Phase 11: honour explicit task_intent from the agent
+        explicit_intent: TaskIntent | None = None
+        if inp.task_intent:
+            try:
+                explicit_intent = TaskIntent(inp.task_intent)
+            except ValueError:
+                explicit_intent = None
+
         reflection_input = ReflectionInput(
             project_id=uuid.UUID(ctx.get_project_id()),
             task_description=inp.task,
@@ -296,6 +308,7 @@ def tool_reflect_and_write(
             branch_name=effective_branch,
             head_commit=effective_commit,
             branch_scope=branch_scope,
+            task_intent=explicit_intent,
         )
         result = svc.reflect_and_write(reflection_input)
 

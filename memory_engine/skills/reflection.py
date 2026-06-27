@@ -346,6 +346,35 @@ class ReflectionSkill:
                 "Created decision candidate: high-risk architectural change detected."
             )
 
+        # f) Fallback: substantial verified work with changed files but unknown intent.
+        #    Prevents "no_new_knowledge" for large implementation tasks whose titles
+        #    don't match the standard intent keywords (e.g. "Phase N: ..." naming).
+        _VERIFIED = (VerificationStatus.tests_passed, VerificationStatus.build_success)
+        if (
+            not candidates
+            and intent == TaskIntent.unknown
+            and inp.task_outcome == TaskOutcome.completed
+            and inp.verification_status in _VERIFIED
+            and len(inp.touched_files) >= 3
+        ):
+            candidates.append(CandidateCreate(
+                project_id=inp.project_id,
+                title=_module_title(inp),
+                summary=inp.outcome_summary,
+                proposed_kind=MemoryKind.module,
+                proposed_tags=_derive_tags(inp),
+                proposed_module_path=inp.module_path,
+                source_ref=_source_ref(inp),
+                confidence=confidence,
+                importance=0.62,
+                evidence_content=None,
+                evidence_source=None,
+            ))
+            reasoning.append(
+                f"Fallback module candidate: verified work on {len(inp.touched_files)} files "
+                f"with unknown intent (task title did not match intent keywords)."
+            )
+
         # ── Nothing generated ─────────────────────────────────────────────
         if not candidates:
             return ReflectionAnalysis(
