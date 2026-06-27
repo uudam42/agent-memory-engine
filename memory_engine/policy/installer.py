@@ -36,6 +36,13 @@ def _claude_md_block(policy_path: Path, mcp_server_name: str = "memory-engine") 
 This project uses [Agent Memory Engine](https://github.com/uudam42/agent-memory-engine)
 for persistent coding memory. Follow these rules exactly.
 
+### `{mcp_server_name}:seed_project_context` — ONCE on new project setup
+
+Call **once** when first connecting a project to Memory Engine (empty memory database).
+Provide: `description`, `constraints`, `decisions`, `tech_stack`, `conventions`.
+All fields optional — README.md is auto-scanned if description is omitted.
+Do NOT call on every task. Check `memory_status` active_memories > 0 to skip.
+
 ### `{mcp_server_name}:retrieve_agent_context` — BEFORE non-trivial work
 
 **Call when the task involves any of:**

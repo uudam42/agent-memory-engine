@@ -90,6 +90,90 @@ def init() -> None:
     rprint("[green]✓[/green] Database initialised.")
 
 
+@app.command()
+def seed(
+    project_name: str = typer.Argument(..., help="Project name"),
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-r", help="Project root path for README auto-extraction"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+) -> None:
+    """Seed initial memory nodes from project context (eliminates cold-start).
+
+    Runs an interactive wizard to collect project description, constraints,
+    architectural decisions, tech stack, and team conventions, then writes
+    them directly as active memory nodes.
+
+    Call once when first connecting a project to Memory Engine.
+    """
+    from pathlib import Path as _Path
+    from memory_engine.skills.seeding import ProjectSeedingService, SeedInput
+
+    root = _Path(project_root).resolve() if project_root else _Path.cwd()
+
+    rprint(f"\n[bold]Memory Engine — Project Seed Wizard[/bold]")
+    rprint(f"Project: [cyan]{project_name}[/cyan]  Root: [dim]{root}[/dim]\n")
+    rprint("Answer the questions below. Press [dim]Enter[/dim] to skip any field.\n")
+
+    def _ask(prompt: str, multiline_hint: str = "") -> str:
+        if multiline_hint:
+            rprint(f"[dim]{multiline_hint}[/dim]")
+        return typer.prompt(prompt, default="", show_default=False).strip()
+
+    def _ask_list(prompt: str, hint: str = "") -> list[str]:
+        rprint(f"[dim]{hint or 'Enter one per line. Empty line to finish.'}[/dim]")
+        items: list[str] = []
+        while True:
+            val = typer.prompt(f"  {prompt} {len(items)+1}", default="", show_default=False).strip()
+            if not val:
+                break
+            items.append(val)
+        return items
+
+    description = _ask(
+        "Project description",
+        "What does this project do? (1-3 sentences)",
+    )
+    tech_stack_raw = _ask("Tech stack", "Main languages/frameworks (comma-separated, e.g. Python, FastAPI, SQLite)")
+    tech_stack = [t.strip() for t in tech_stack_raw.split(",") if t.strip()] if tech_stack_raw else []
+
+    rprint("\n[bold]Constraints[/bold] — hard rules that must never be violated")
+    constraints = _ask_list("Constraint")
+
+    rprint("\n[bold]Architectural decisions[/bold] — key choices already made")
+    decisions = _ask_list("Decision")
+
+    rprint("\n[bold]Team conventions[/bold] — workflow or coding rules")
+    conventions = _ask_list("Convention")
+
+    if not description and not constraints and not decisions and not conventions:
+        rprint("\n[yellow]Nothing provided. Attempting auto-extraction from README.md...[/yellow]")
+
+    if not yes:
+        typer.confirm("\nWrite these nodes to the memory database?", default=True, abort=True)
+
+    with _get_session() as session:
+        project = _find_project(project_name)
+        svc = ProjectSeedingService(session)
+        result = svc.seed(SeedInput(
+            project_id=project.id,
+            project_root=root,
+            description=description,
+            constraints=constraints,
+            decisions=decisions,
+            tech_stack=tech_stack,
+            conventions=conventions,
+        ))
+
+    if result.skipped_reason:
+        rprint(f"\n[yellow]Skipped:[/yellow] {result.skipped_reason}")
+        return
+
+    rprint(f"\n[green]✓[/green] Created [bold]{result.nodes_created}[/bold] memory nodes:")
+    for title in result.node_titles:
+        rprint(f"  [dim]·[/dim] {title}")
+    rprint(f"\n  module={result.module_nodes}  constraint={result.constraint_nodes}  "
+           f"decision={result.decision_nodes}  procedure={result.procedure_nodes}")
+
+
 # ---------------------------------------------------------------------------
 # memory project list
 # ---------------------------------------------------------------------------

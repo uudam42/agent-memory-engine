@@ -75,6 +75,25 @@ class ReflectAndWriteInput(BaseModel):
     task_intent: str | None = None
 
 
+class SeedProjectInput(BaseModel):
+    description: str = ""
+    constraints: list[str] = Field(default_factory=list)
+    decisions: list[str] = Field(default_factory=list)
+    tech_stack: list[str] = Field(default_factory=list)
+    conventions: list[str] = Field(default_factory=list)
+    skip_auto_extract: bool = False
+
+
+class SeedProjectOutput(BaseModel):
+    nodes_created: int = 0
+    module_nodes: int = 0
+    constraint_nodes: int = 0
+    decision_nodes: int = 0
+    procedure_nodes: int = 0
+    node_titles: list[str] = Field(default_factory=list)
+    skipped_reason: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Tool outputs
 # ---------------------------------------------------------------------------
