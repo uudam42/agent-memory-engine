@@ -73,7 +73,7 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 | **Query-time context assembly** | Proposition hits optionally expand to parent paragraphs; architecture queries attach module summaries |
 | **Memory retention & compaction** | Candidate expiry, stale/superseded archival, multi-source compaction with full lineage — no physical deletion |
 | **Protected memory types** | `constraint`, `security_rule`, `architecture`, `decision` excluded from all auto-archive and auto-compaction |
-| **Agent memory policy** | Canonical `AGENT_MEMORY_POLICY.md` generated per project; Claude Code and Cursor adapters installable via CLI |
+| **Agent memory policy** | Canonical `AGENT_MEMORY_POLICY.md` auto-installed to `CLAUDE.md` / `.cursor/rules/` on first bootstrap; CLI available for manual control |
 | **Windows installer** | PowerShell installer (`scripts/install.ps1`) for Windows-native setup without Docker, WSL, or cloud services |
 
 ---
@@ -475,26 +475,34 @@ tests/
 
 ### Phase 11: Agent Memory Policy
 
-Generate a canonical workflow policy for compliant MCP coding agents:
+**The policy is installed automatically.** On first bootstrap (first MCP tool
+call after setup), Memory Engine writes a workflow policy block directly into
+the project's `CLAUDE.md` (Claude Code) and generates
+`.memory-engine/generated/AGENT_MEMORY_POLICY.md`. No manual step required.
+
+The policy block contains explicit call/skip decision rules for both tools:
+
+- **`retrieve_agent_context`** — call before editing production code, tests,
+  CI, dependencies, or config; before debugging; when touching ≥ 2 files or
+  any unfamiliar subsystem. Skip for pure explanations, single-line typo fixes,
+  or when already called for the same task this session.
+- **`reflect_and_write`** — call after `tests_passed` or `build_success` on
+  ≥ 2 changed files or a non-trivial architectural decision. Skip if tests
+  failed, task was reverted, only one trivial file changed, or no validation ran.
+
+For manual control or Cursor adapter installation:
 
 ```bash
-# Generate policy
+# Re-generate policy (idempotent, preserves user content outside markers)
 memory policy generate --project-root .
 
-# Install client adapters
+# Install or update client adapters explicitly
 memory policy install --project-root . --client claude-code
 memory policy install --project-root . --client cursor
 
-# Check status
+# Check adapter installation status
 memory policy status --project-root .
 ```
-
-The generated policy is written to `.memory-engine/generated/AGENT_MEMORY_POLICY.md`
-using stable begin/end markers (idempotent, user content preserved).
-
-**Compliance limitation:** The MCP server cannot technically force every arbitrary
-client or model to invoke tools. The policy provides strong workflow guidance for
-clients that honour project-level instructions.
 
 See [`docs/agent_memory_policy.md`](docs/agent_memory_policy.md).
 
@@ -780,7 +788,7 @@ pytest tests/test_phase6.py -v
 pytest -k "recall" -v
 ```
 
-460 tests currently passing. All deterministic. No external services required.
+462 tests currently passing. All deterministic. No external services required.
 
 ---
 
