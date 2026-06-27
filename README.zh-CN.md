@@ -73,6 +73,7 @@ Memory Engine 通过维护一棵结构化的、有证据支撑的记忆树，以
 | **记忆保留与压缩** | 候选到期、过期/被替代归档、多来源压缩（完整溯源）——不做物理删除 |
 | **受保护记忆类型** | `constraint`、`security_rule`、`architecture`、`decision` 永远不会被自动归档或压缩 |
 | **Agent 记忆策略** | 首次 bootstrap 时自动写入 `CLAUDE.md` / `.cursor/rules/`；支持 CLI 手动控制 |
+| **项目上下文 Seed** | `seed_project_context` MCP 工具 + `memory seed` CLI 向导——第一天即可写入约束、决策和项目概述，彻底消除冷启动问题 |
 | **Windows 安装脚本** | PowerShell 安装脚本（`scripts/install.ps1`），无需 Docker、WSL 或云服务 |
 
 ---
@@ -441,6 +442,7 @@ docs/
 
 | 工具 | 用途 |
 |---|---|
+| `seed_project_context` | **新项目首次调用。** 将约束、决策、项目描述、团队规范直接写入活跃记忆节点。省略字段时自动解析 README.md。彻底消除冷启动问题。 |
 | `retrieve_agent_context` | 编码任务前检索记忆和知识。Phase 10：可传入 `task_intent`、`preferred_layers`、`proposition_types` 引导粒度路由。 |
 | `inspect_memory` | 深入审查 MemoryNode 及其子节点和证据 |
 | `inspect_knowledge` | 查看 KnowledgeChunk 或源文件范围（已脱敏） |
@@ -516,6 +518,44 @@ your-project/.memory-engine/
 三个人工编写的 `.md` 文件可按需提交到 Git 进行团队共享。
 
 **重置方法：** `rm -rf your-project/.memory-engine/`
+
+---
+
+## 项目上下文 Seed（Phase 12）
+
+新项目接入时记忆库为空，前几次 `retrieve_agent_context` 什么都返回不了。
+Seed 功能通过在第一天写入初始记忆节点，彻底消除这个冷启动问题。
+
+### 方式 A — MCP 工具 `seed_project_context`（由 Agent 调用）
+
+当 `memory_status` 显示 `active_memories == 0` 时调用**一次**：
+
+```json
+{
+  "description": "带重试和生命周期管理的任务调度系统。",
+  "constraints": [
+    "终态（COMPLETED、FAILED）不可逆。",
+    "禁止并发执行同一任务。"
+  ],
+  "decisions": [
+    "选 SQLite 而非 PostgreSQL——零基础设施本地部署。",
+    "采用事件溯源保留审计日志。"
+  ],
+  "tech_stack": ["Python", "FastAPI", "SQLite"],
+  "conventions": ["PR 需一名 reviewer。", "禁止 force-push main。"]
+}
+```
+
+所有字段均可省略。省略 `description` 时自动解析 `README.md` 中的约束/决策章节和
+项目列表（无需 LLM）。节点直接以 `active` 状态、`confidence=1.0` 写入，绕过候选审核流程。
+
+### 方式 B — CLI 向导 `memory seed`（交互式）
+
+```bash
+memory seed my-project --project-root /path/to/project
+```
+
+逐步提示输入项目描述、技术栈、约束、决策和团队规范，确认后立即写入。
 
 ---
 
@@ -759,7 +799,7 @@ pytest tests/test_phase7.py -v
 pytest -k "recall" -v
 ```
 
-目前共 462 个测试，全部确定性通过，无需外部服务。
+目前共 473 个测试，全部确定性通过，无需外部服务。
 
 ---
 

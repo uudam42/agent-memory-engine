@@ -74,6 +74,7 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 | **Memory retention & compaction** | Candidate expiry, stale/superseded archival, multi-source compaction with full lineage — no physical deletion |
 | **Protected memory types** | `constraint`, `security_rule`, `architecture`, `decision` excluded from all auto-archive and auto-compaction |
 | **Agent memory policy** | Canonical `AGENT_MEMORY_POLICY.md` auto-installed to `CLAUDE.md` / `.cursor/rules/` on first bootstrap; CLI available for manual control |
+| **Project context seeding** | `seed_project_context` MCP tool + `memory seed` CLI wizard — write initial constraints, decisions, and project overview on day 1, eliminating the cold-start problem |
 | **Windows installer** | PowerShell installer (`scripts/install.ps1`) for Windows-native setup without Docker, WSL, or cloud services |
 
 ---
@@ -450,6 +451,7 @@ tests/
 
 | Tool | Purpose |
 |---|---|
+| `seed_project_context` | **Call once on new projects.** Write initial constraints, decisions, project description, and conventions directly as active memory nodes. Auto-extracts from README.md when fields are omitted. Eliminates cold-start problem. |
 | `retrieve_agent_context` | Retrieve memory + knowledge before a coding task. Phase 10: pass `task_intent`, `preferred_layers`, `proposition_types` to guide granularity routing. |
 | `inspect_memory` | Drill into a MemoryNode, its children, and evidence |
 | `inspect_knowledge` | Inspect a KnowledgeChunk or source file range (redacted) |
@@ -528,6 +530,48 @@ Add `.memory-engine/` to `.gitignore` (generated hint on first bootstrap).
 The three human-authored `.md` files may optionally be committed.
 
 **Reset:** `rm -rf your-project/.memory-engine/`
+
+---
+
+## Project context seeding (Phase 12)
+
+On a brand-new project the memory database is empty, so `retrieve_agent_context`
+returns nothing useful for the first several sessions. Seeding eliminates this
+cold-start problem by writing initial memory nodes on day one.
+
+### Option A — MCP tool `seed_project_context` (agent-driven)
+
+Call **once** when `memory_status` shows `active_memories == 0`:
+
+```json
+{
+  "description": "Task scheduling system with retry and lifecycle management.",
+  "constraints": [
+    "Terminal states (COMPLETED, FAILED) must never be exited.",
+    "Concurrent execution of the same task is forbidden."
+  ],
+  "decisions": [
+    "SQLite over PostgreSQL — zero-infrastructure local deployment.",
+    "Event sourcing for audit trail."
+  ],
+  "tech_stack": ["Python", "FastAPI", "SQLite"],
+  "conventions": ["PRs require one reviewer.", "No force-push to main."]
+}
+```
+
+All fields are optional. When `description` is omitted, README.md is
+auto-scanned for constraint/decision headings and bullet lists (no LLM).
+Nodes are written directly as **active** with `confidence=1.0` — authoritative
+human input bypasses the candidate/promotion pipeline.
+
+### Option B — CLI wizard `memory seed` (interactive)
+
+```bash
+memory seed my-project --project-root /path/to/project
+```
+
+Runs a step-by-step prompt for description, tech stack, constraints,
+decisions, and conventions, then writes nodes immediately.
 
 ---
 
@@ -788,7 +832,7 @@ pytest tests/test_phase6.py -v
 pytest -k "recall" -v
 ```
 
-462 tests currently passing. All deterministic. No external services required.
+473 tests currently passing. All deterministic. No external services required.
 
 ---
 
