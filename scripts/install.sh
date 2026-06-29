@@ -313,6 +313,10 @@ print_final_summary() {
 # ── Optional semantic retrieval ───────────────────────────────────────────────
 
 ask_semantic_setup() {
+    # Skip in CI or non-interactive environments
+    if [ -n "${CI:-}" ] || [ ! -t 0 ]; then
+        return 0
+    fi
     echo ""
     echo -e "${BOLD}Optional: Enable semantic retrieval (Phase 13)?${NC}"
     echo "  Installs sentence-transformers + sqlite-vec for cross-wording search."

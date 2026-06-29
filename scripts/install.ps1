@@ -440,23 +440,25 @@ Write-Host "|    Agent Memory Engine installed successfully!      |" -Foreground
 Write-Host "+-----------------------------------------------------+" -ForegroundColor Green
 Write-Host ""
 
-# Optional semantic retrieval prompt
-Write-Host ""
-Write-Host "Optional: Enable semantic retrieval (Phase 13)?" -ForegroundColor Bold
-Write-Host "  Installs sentence-transformers + sqlite-vec for cross-wording search." -ForegroundColor White
-Write-Host "  Model download (~130 MB) happens on first use, not now." -ForegroundColor White
-$semReply = Read-Host "  Install and enable? [y/N]"
-if ($semReply -match "^[Yy]$") {
+# Optional semantic retrieval prompt (skipped in CI / non-interactive environments)
+if (-not $env:CI -and [Environment]::UserInteractive) {
     Write-Host ""
-    Write-Host "Installing memory-engine[semantic-transformers]..." -ForegroundColor Cyan
-    uv pip install --directory $RepoRoot "memory-engine[semantic-transformers]"
-    Write-Host "Dependencies installed." -ForegroundColor Green
+    Write-Host "Optional: Enable semantic retrieval (Phase 13)?" -ForegroundColor Cyan
+    Write-Host "  Installs sentence-transformers + sqlite-vec for cross-wording search." -ForegroundColor White
+    Write-Host "  Model download (~130 MB) happens on first use, not now." -ForegroundColor White
+    $semReply = Read-Host "  Install and enable? [y/N]"
+    if ($semReply -match "^[Yy]$") {
+        Write-Host ""
+        Write-Host "Installing memory-engine[semantic-transformers]..." -ForegroundColor Cyan
+        uv pip install --directory $RepoRoot "memory-engine[semantic-transformers]"
+        Write-Host "Dependencies installed." -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  To activate for a project, run once per project:" -ForegroundColor White
+        Write-Host "  uv run --directory $RepoRoot memory semantic status --enable --project-root <YOUR_PROJECT>" -ForegroundColor Gray
+    } else {
+        Write-Host "  Skipped. Enable later with:" -ForegroundColor White
+        Write-Host "    uv pip install 'memory-engine[semantic-transformers]'" -ForegroundColor Gray
+        Write-Host "    memory semantic status --enable --project-root <YOUR_PROJECT>" -ForegroundColor Gray
+    }
     Write-Host ""
-    Write-Host "  To activate for a project, run once per project:" -ForegroundColor White
-    Write-Host "  uv run --directory $RepoRoot memory semantic status --enable --project-root <YOUR_PROJECT>" -ForegroundColor Gray
-} else {
-    Write-Host "  Skipped. Enable later with:" -ForegroundColor White
-    Write-Host "    uv pip install 'memory-engine[semantic-transformers]'" -ForegroundColor Gray
-    Write-Host "    memory semantic status --enable --project-root <YOUR_PROJECT>" -ForegroundColor Gray
 }
-Write-Host ""
