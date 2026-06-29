@@ -799,8 +799,8 @@ def semantic_reindex(
     if index is None:
         rprint(
             "[yellow]Semantic retrieval is not active.[/yellow] "
-            "Enable MEMORY_ENGINE_SEMANTIC_ENABLED=1 and install "
-            "memory-engine[semantic-sqlite] plus a provider, then retry."
+            "Run: memory semantic status --enable --project-root . "
+            "(install memory-engine[semantic-transformers] first if needed)."
         )
         raise typer.Exit(0)
 
@@ -824,7 +824,7 @@ def semantic_doctor(
     from memory_engine.knowledge.sqlite_vec_index import sqlite_vec_available
 
     ctx = _semantic_ctx(project_root)
-    cfg = get_semantic_config()
+    cfg = get_semantic_config(_resolve_root(project_root) if project_root else None)
     provider = build_provider(cfg)
     index = ctx.get_semantic_index()
     stats = index.get_stats(ctx.get_project_id()) if index is not None else {}

@@ -59,9 +59,9 @@ def detect_retrieval_mode(
     """
     if config is None:
         try:
-            from memory_engine.config import settings
+            from memory_engine.knowledge.semantic import get_semantic_config
 
-            config = settings.semantic
+            config = get_semantic_config(project_root)
         except Exception:
             config = None
 
@@ -80,8 +80,8 @@ def detect_retrieval_mode(
             warnings=[
                 "Semantic vector retrieval is disabled. "
                 "Results use lexical, module-path, symbol, and memory-tree ranking. "
-                "Enable with MEMORY_ENGINE_SEMANTIC_ENABLED=1 and install "
-                "memory-engine[semantic-sqlite]."
+                "Enable with: memory semantic status --enable --project-root <your-project> "
+                "(after installing memory-engine[semantic-transformers])."
             ],
         )
 
