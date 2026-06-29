@@ -170,3 +170,4 @@ class MemoryStatusOutput(BaseModel):
     embedded_record_count: int = 0
     pending_embedding_count: int = 0
     semantic_health: str = "disabled"   # disabled | unavailable | healthy | degraded
+    suggestions: list[str] = Field(default_factory=list)
