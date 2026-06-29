@@ -589,20 +589,44 @@ Phase 13 引入一个可选的 **本地持久化语义索引**，让检索也能
 
 ### 启用方式
 
-```bash
-# 1. 安装后端 + Provider（任选其一）
-uv pip install 'memory-engine[semantic-transformers]'   # 本地 sentence-transformers
-# 或：uv pip install 'memory-engine[semantic-ollama]'     # 本地 Ollama
-# 或：uv pip install 'memory-engine[semantic-sqlite]'     # 仅后端
+**方式 A — 安装脚本提示（新安装推荐）**
 
-# 2. 打开开关（环境变量或 .memory-engine 配置）
+安装脚本结束时会询问是否开启语义检索：
+
+```bash
+bash scripts/install.sh
+# → "Enable semantic retrieval? [y/N]"
+# → y：自动安装 sentence-transformers + sqlite-vec
+```
+
+然后为每个项目执行一次（写入 `.memory-engine/config.yaml`，重启终端后依然有效）：
+
+```bash
+memory semantic status --enable --project-root /your/project
+```
+
+**方式 B — 手动**
+
+```bash
+# 1. 安装依赖
+uv pip install 'memory-engine[semantic-transformers]'   # sentence-transformers + sqlite-vec
+# 或：uv pip install 'memory-engine[semantic-ollama]'   # Ollama + sqlite-vec
+
+# 2. 持久化到项目配置（重启终端后依然有效）
+memory semantic status --enable --project-root /your/project
+```
+
+**方式 C — 环境变量（CI / 临时覆盖）**
+
+```bash
 export MEMORY_ENGINE_SEMANTIC_ENABLED=1
 export MEMORY_ENGINE_EMBEDDING_PROVIDER=sentence_transformers
 export MEMORY_ENGINE_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 ```
 
-启用且可用时，`retrieval_mode` 变为 `hybrid`、后端为 `sqlite_vec`；否则引擎保持
-`lexical_structured_fallback`，并附带诊断警告说明原因。
+环境变量优先级高于 `config.yaml`。启用且可用时，`retrieval_mode` 变为 `hybrid`；
+否则引擎保持 `lexical_structured_fallback`，`memory_status` 的 `suggestions`
+字段会提示如何激活。
 
 ### CLI
 
