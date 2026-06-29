@@ -603,21 +603,45 @@ Query
 
 ### Enable it
 
-```bash
-# 1. Install a backend + provider (pick one provider)
-uv pip install 'memory-engine[semantic-transformers]'   # local sentence-transformers
-# or:  uv pip install 'memory-engine[semantic-ollama]'    # local Ollama
-# or:  uv pip install 'memory-engine[semantic-sqlite]'    # backend only (bring your own vectors)
+**Option A — installer prompt (recommended for new installs)**
 
-# 2. Turn it on (env or .memory-engine config)
+The installer asks whether to enable semantic retrieval at the end:
+
+```bash
+bash scripts/install.sh
+# → "Enable semantic retrieval? [y/N]"
+# → y: installs sentence-transformers + sqlite-vec
+```
+
+Then activate per project (writes to `.memory-engine/config.yaml`, persists across restarts):
+
+```bash
+memory semantic status --enable --project-root /your/project
+```
+
+**Option B — manual**
+
+```bash
+# 1. Install deps
+uv pip install 'memory-engine[semantic-transformers]'   # sentence-transformers + sqlite-vec
+# or: uv pip install 'memory-engine[semantic-ollama]'   # Ollama + sqlite-vec
+
+# 2. Persist to project config (survives terminal restarts)
+memory semantic status --enable --project-root /your/project
+```
+
+**Option C — env vars (CI / temporary override)**
+
+```bash
 export MEMORY_ENGINE_SEMANTIC_ENABLED=1
 export MEMORY_ENGINE_EMBEDDING_PROVIDER=sentence_transformers
 export MEMORY_ENGINE_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 ```
 
-When enabled and available, `retrieval_mode` becomes `hybrid` with backend
-`sqlite_vec`; otherwise the engine stays in `lexical_structured_fallback` and a
-diagnostic warning explains why.
+Env vars always take precedence over `config.yaml`. When enabled and available,
+`retrieval_mode` becomes `hybrid`; otherwise the engine stays in
+`lexical_structured_fallback` and `memory_status` returns a `suggestions` field
+explaining how to activate it.
 
 ### CLI
 

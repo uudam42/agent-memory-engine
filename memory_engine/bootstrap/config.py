@@ -138,6 +138,31 @@ def write_default_config(config_path: Path, project_name: str = "auto") -> None:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
 
 
+def write_semantic_config(
+    config_path: Path,
+    enabled: bool = True,
+    provider: str = "sentence_transformers",
+    model: str = "BAAI/bge-small-en-v1.5",
+) -> None:
+    """Persist semantic retrieval settings into config.yaml.
+
+    Creates the file if absent; preserves all other existing sections.
+    Env vars (MEMORY_ENGINE_SEMANTIC_ENABLED etc.) still take precedence at runtime.
+    """
+    existing: dict = {}
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+
+    existing.setdefault("semantic", {})
+    existing["semantic"]["enabled"] = enabled
+    existing["semantic"]["provider"] = provider
+    existing["semantic"]["model"] = model
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge override into base.  Override wins on conflicts."""
     result = dict(base)

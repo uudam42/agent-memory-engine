@@ -310,6 +310,34 @@ print_final_summary() {
     echo ""
 }
 
+# ── Optional semantic retrieval ───────────────────────────────────────────────
+
+ask_semantic_setup() {
+    # Skip in CI or non-interactive environments
+    if [ -n "${CI:-}" ] || [ ! -t 0 ]; then
+        return 0
+    fi
+    echo ""
+    echo -e "${BOLD}Optional: Enable semantic retrieval (Phase 13)?${NC}"
+    echo "  Installs sentence-transformers + sqlite-vec for cross-wording search."
+    echo "  Model download (~130 MB) happens on first use, not now."
+    read -r -p "  Install and enable? [y/N] " _sem_reply
+    if [[ "$_sem_reply" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "${BLUE}Installing memory-engine[semantic-transformers]…${NC}"
+        uv pip install --directory "$REPO_ROOT" "memory-engine[semantic-transformers]"
+        echo -e "${GREEN}✓ Dependencies installed.${NC}"
+        echo ""
+        echo "  To activate for a project, run once per project:"
+        echo -e "  ${BOLD}uv run --directory $REPO_ROOT memory semantic status --enable --project-root /your/project${NC}"
+    else
+        echo "  Skipped. Enable later with:"
+        echo "    uv pip install 'memory-engine[semantic-transformers]'"
+        echo "    memory semantic status --enable --project-root /your/project"
+    fi
+    echo ""
+}
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 main() {
@@ -323,6 +351,7 @@ main() {
     run_health_check
     print_mcp_config
     print_final_summary
+    ask_semantic_setup
 }
 
 main "$@"

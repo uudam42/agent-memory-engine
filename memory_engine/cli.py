@@ -750,8 +750,22 @@ def _semantic_ctx(project_root: Optional[str]):  # type: ignore[no-untyped-def]
 @semantic_app.command("status")
 def semantic_status(
     project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+    enable: bool = typer.Option(False, "--enable", help="Persist semantic=on to config.yaml"),
+    provider: str = typer.Option("sentence_transformers", "--provider", help="Embedding provider"),
+    model: str = typer.Option("BAAI/bge-small-en-v1.5", "--model", help="Embedding model"),
 ) -> None:
-    """Show semantic retrieval provider/backend/model and embedded counts."""
+    """Show semantic retrieval status. Pass --enable to persist settings to config.yaml."""
+    if enable:
+        from memory_engine.bootstrap.config import write_semantic_config
+
+        root = _resolve_root(project_root)
+        config_path = root / ".memory-engine" / "config.yaml"
+        write_semantic_config(config_path, enabled=True, provider=provider, model=model)
+        rprint(f"[green]✓[/green] Semantic retrieval enabled in {config_path}")
+        rprint(f"  provider={provider}  model={model}")
+        rprint("  [dim]Install deps if needed: uv pip install 'memory-engine[semantic-transformers]'[/dim]")
+        rprint("  [dim]Env vars (MEMORY_ENGINE_SEMANTIC_ENABLED etc.) still override config.yaml.[/dim]")
+
     ctx = _semantic_ctx(project_root)
     mode = ctx.get_mode_info()
     index = ctx.get_semantic_index()

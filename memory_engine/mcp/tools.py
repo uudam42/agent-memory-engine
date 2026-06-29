@@ -368,6 +368,21 @@ def tool_reflect_and_write(
 # ---------------------------------------------------------------------------
 
 
+def _semantic_suggestions(semantic_health: str) -> list[str]:
+    if semantic_health == "disabled":
+        return [
+            "Semantic retrieval is disabled — semantic_similarity will always be 0.0. "
+            "To enable: run `memory semantic status --enable --project-root /your/project` "
+            "after installing `uv pip install 'memory-engine[semantic-transformers]'`."
+        ]
+    if semantic_health == "unavailable":
+        return [
+            "Semantic retrieval is configured but the provider or sqlite-vec backend is unavailable. "
+            "Run `memory semantic doctor --project-root .` for details."
+        ]
+    return []
+
+
 def tool_memory_status(ctx: ProjectContext) -> dict[str, Any]:
     """Return project health and index status."""
     bootstrap_report = ctx.ensure_bootstrapped()
@@ -451,6 +466,7 @@ def tool_memory_status(ctx: ProjectContext) -> dict[str, Any]:
         embedded_record_count=embedded_count,
         pending_embedding_count=pending_count,
         semantic_health=semantic_health,
+        suggestions=_semantic_suggestions(semantic_health),
     ).model_dump()
 
 
