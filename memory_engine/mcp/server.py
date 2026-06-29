@@ -62,6 +62,7 @@ from memory_engine.mcp.resources import (
     resource_git_context,
     resource_branch_memory_summary,
     resource_sync_status,
+    resource_semantic_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -330,6 +331,11 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
     @mcp_server.resource("memory://project/current/compaction-report")
     async def get_compaction_report() -> str:
         return resource_compaction_report(ctx)
+
+    # Phase 13: semantic retrieval status
+    @mcp_server.resource("memory://project/current/semantic-status")
+    async def get_semantic_status() -> str:
+        return resource_semantic_status(ctx)
 
     return mcp_server
 

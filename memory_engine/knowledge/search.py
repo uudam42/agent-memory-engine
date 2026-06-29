@@ -78,6 +78,14 @@ def _rrf(rank: int) -> float:
     return 1.0 / (_RRF_K + rank)
 
 
+@dataclass
+class _SemVecHit:
+    """Lightweight adapter so persistent VectorSearchResult fits the RRF loop."""
+
+    chunk_id: str
+    score: float
+
+
 def _module_overlap(chunk_modules: list[str], query_files: list[str]) -> float:
     if not chunk_modules or not query_files:
         return 0.0
@@ -121,6 +129,7 @@ class _ScoredCandidate:
     chunk_id: str
     document_id: str
     vector_score: float = 0.0
+    semantic_score: float = 0.0   # Phase 13: real cosine from persistent backend
     lexical_score: float = 0.0
     module_score: float = 0.0
     symbol_score: float = 0.0
@@ -157,6 +166,7 @@ class _ScoredCandidate:
     def breakdown(self) -> dict[str, float]:
         return {
             "vector": round(self.vector_score, 3),
+            "semantic_similarity": round(self.semantic_score, 3),
             "lexical": round(self.lexical_score, 3),
             "module_overlap": round(self.module_score, 3),
             "symbol_overlap": round(self.symbol_score, 3),
@@ -177,10 +187,16 @@ class KnowledgeSearchService:
         session: Session,
         vector_index: KnowledgeVectorIndex | None = None,
         cache: SimpleCache | None = None,
+        semantic_index=None,  # type: ignore[no-untyped-def]  # Phase 13: SqliteVecIndex | None
+        branch_name: str | None = None,
     ) -> None:
         self._session = session
         self._vector_index: KnowledgeVectorIndex = vector_index or get_shared_vector_index()
         self._cache = cache or get_global_cache()
+        # Phase 13: optional persistent semantic backend (SqliteVecIndex).
+        # When present, real cosine similarity replaces the ephemeral BoW score.
+        self._semantic_index = semantic_index
+        self._branch_name = branch_name
 
     def search(self, req: KnowledgeSearchRequest) -> list[KnowledgeSearchResult]:
         project_id_str = str(req.project_id)
@@ -205,11 +221,32 @@ class KnowledgeSearchService:
 
         # ── 2. Parallel lexical + vector search ──────────────────────────────
         fts_hits = fts_search(self._session, project_id_str, norm_query, limit=req.max_results * 3)
-        vec_hits = self._vector_index.search(
-            norm_query, project_id_str,
-            limit=req.max_results * 3,
-            filter_metadata=filter_meta if filter_meta else None,
-        )
+
+        # Phase 13: prefer the persistent sqlite-vec backend when available.
+        # It returns real cosine similarity (record_id == chunk_id for chunks).
+        # When absent, fall back to the ephemeral BoW vector index unchanged.
+        semantic_scores: dict[str, float] = {}
+        if self._semantic_index is not None:
+            try:
+                sem_hits = self._semantic_index.search(
+                    norm_query, project_id_str,
+                    limit=req.max_results * 3,
+                    branch_name=self._branch_name,
+                    record_types=["chunk"],
+                )
+            except Exception:
+                sem_hits = []
+            vec_hits = [
+                _SemVecHit(chunk_id=h.record_id, score=h.score) for h in sem_hits
+            ]
+            for h in sem_hits:
+                semantic_scores[h.record_id] = h.score
+        else:
+            vec_hits = self._vector_index.search(
+                norm_query, project_id_str,
+                limit=req.max_results * 3,
+                filter_metadata=filter_meta if filter_meta else None,
+            )
 
         # ── 3. RRF fusion ─────────────────────────────────────────────────────
         candidates: dict[str, _ScoredCandidate] = {}
@@ -239,6 +276,11 @@ class KnowledgeSearchService:
                 candidates[hit.chunk_id].vector_score,
                 hit.score,
             )
+            if hit.chunk_id in semantic_scores:
+                candidates[hit.chunk_id].semantic_score = max(
+                    candidates[hit.chunk_id].semantic_score,
+                    semantic_scores[hit.chunk_id],
+                )
 
         if not candidates:
             return []

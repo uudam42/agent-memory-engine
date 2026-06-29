@@ -22,6 +22,11 @@ class RetrievalMeta(BaseModel):
     branch_aware_ranking: bool = False
     git_available: bool = False
     is_repository: bool = False
+    # Phase 13: semantic retrieval trace (additive, backward-compatible)
+    semantic_backend: str = "none"
+    embedding_provider: str = "none"
+    embedding_model: str = "none"
+    semantic_status: str = "disabled"   # disabled | unavailable | used | degraded
 
 
 # ---------------------------------------------------------------------------
@@ -157,3 +162,11 @@ class MemoryStatusOutput(BaseModel):
     last_git_sync_at: str = ""
     branch_aware_retrieval_enabled: bool = False
     synchronization_status: str = "idle"
+    # Phase 13: semantic retrieval status (additive)
+    semantic_enabled: bool = False
+    semantic_backend: str = "none"
+    embedding_provider: str = "none"
+    embedding_model: str = "none"
+    embedded_record_count: int = 0
+    pending_embedding_count: int = 0
+    semantic_health: str = "disabled"   # disabled | unavailable | healthy | degraded

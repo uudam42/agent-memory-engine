@@ -56,7 +56,7 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 | **Automatic post-task reflection** | Agent reports outcome → system decides whether and how to retain knowledge |
 | **Knowledge ingestion** | Markdown, code, ADR, test reports, runtime logs, git diffs |
 | **Local FTS5 search** | SQLite FTS5 with porter tokenizer; no external search engine |
-| **Optional vector retrieval** | InMemoryVectorIndex (ephemeral) or future persistent backends |
+| **Optional semantic retrieval** | Persistent local sqlite-vec backend with sentence-transformers / Ollama embeddings (Phase 13); default OFF, no required deps |
 | **Lexical structured fallback** | Full retrieval without vector backend or Docker |
 | **Unified ContextPack** | Memory + knowledge merged, deduplicated, token-budgeted |
 | **Retrieval traceability** | Per-signal score breakdown in every response |
@@ -575,6 +575,64 @@ decisions, and conventions, then writes nodes immediately.
 
 ---
 
+## Phase 13 — Local Persistent Vector Retrieval
+
+Lexical FTS5 retrieval misses cross-wording matches: a query for "DB schema
+upgrade" will not rank a chunk that says "database migration". Phase 13 adds a
+**persistent local semantic index** so retrieval also matches on meaning, while
+keeping the default install lightweight.
+
+```
+Query
+  ├── FTS5 lexical retrieval        (always active)
+  ├── sqlite-vec semantic retrieval (optional, default OFF)
+  ├── Branch / revision / lifecycle filters
+  ├── RRF candidate fusion
+  ├── Deterministic multi-signal ranker
+  └── Token-budgeted UnifiedContextPack
+```
+
+**Design guarantees**
+
+- Default `uv sync` installs nothing extra — no model downloads, no new required deps.
+- [sqlite-vec](https://github.com/asg017/sqlite-vec) is the persistent backend: no Docker, no external service.
+- Sentence-transformers and Ollama are optional **local** embedding providers. No cloud APIs.
+- FTS5 lexical fallback is unchanged when semantic is disabled.
+- Branch / revision / lifecycle safety filters are never bypassed by semantic results.
+- Content is redacted before embedding (same `redact()` path as the rest of the engine).
+
+### Enable it
+
+```bash
+# 1. Install a backend + provider (pick one provider)
+uv pip install 'memory-engine[semantic-transformers]'   # local sentence-transformers
+# or:  uv pip install 'memory-engine[semantic-ollama]'    # local Ollama
+# or:  uv pip install 'memory-engine[semantic-sqlite]'    # backend only (bring your own vectors)
+
+# 2. Turn it on (env or .memory-engine config)
+export MEMORY_ENGINE_SEMANTIC_ENABLED=1
+export MEMORY_ENGINE_EMBEDDING_PROVIDER=sentence_transformers
+export MEMORY_ENGINE_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+```
+
+When enabled and available, `retrieval_mode` becomes `hybrid` with backend
+`sqlite_vec`; otherwise the engine stays in `lexical_structured_fallback` and a
+diagnostic warning explains why.
+
+### CLI
+
+```bash
+memory semantic status  --project-root .   # provider/backend/model + embedded counts
+memory semantic doctor  --project-root .   # availability, dimension, orphan checks
+memory semantic reindex --project-root .   # incremental embedding (--full to rebuild)
+memory semantic clear   --project-root . --confirm   # clears vectors only
+```
+
+Vectors live in `.memory-engine/vector.db`. `clear` never touches source
+knowledge or memory trees. Full details: [docs/local_vector_retrieval.md](docs/local_vector_retrieval.md).
+
+---
+
 ## Human-authored seed knowledge
 
 Create these files to provide stable project knowledge that cannot be safely
@@ -623,13 +681,16 @@ Signals used for ranking:
 - Freshness (recency weighting)
 - Project-scoped TTL cache
 
-### Enhanced mode: `hybrid_lexical_vector`
+### Enhanced mode: `hybrid` (Phase 13)
 
-Active when a persistent vector backend is healthy.
-Adds cosine similarity over chunk embeddings via RRF fusion.
+Active when semantic retrieval is enabled and both sqlite-vec and a local
+embedding provider are available. Adds real cosine similarity over chunk,
+paragraph, proposition, and summary embeddings via RRF fusion. The
+`semantic_similarity` score in the retrieval trace reflects the actual vector
+score (no longer always 0.0). See the Phase 13 section above.
 
 **Vector retrieval is optional.** The default local mode works without
-Qdrant, Docker, or any external service.
+sqlite-vec, Qdrant, Docker, or any external service.
 
 ### Phase 10: multi-granularity retrieval
 
@@ -832,7 +893,9 @@ pytest tests/test_phase6.py -v
 pytest -k "recall" -v
 ```
 
-473 tests currently passing. All deterministic. No external services required.
+511 tests currently passing. All deterministic. No external services required.
+(Semantic retrieval tests use mocked providers or `pytest.importorskip("sqlite_vec")`
+— no models are downloaded during the test run.)
 
 ---
 

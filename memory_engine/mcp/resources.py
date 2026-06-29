@@ -342,3 +342,27 @@ def resource_sync_status(ctx: ProjectContext) -> str:
         )
         lines.append(f"index_behind_head: {bool(stale)}")
     return "\n".join(lines)
+
+
+def resource_semantic_status(ctx: ProjectContext) -> str:
+    """Return semantic retrieval status as compact text (Phase 13)."""
+    from memory_engine.mcp.tools import tool_memory_status
+
+    status = tool_memory_status(ctx)
+    lines = ["# Semantic Retrieval Status\n"]
+    for key in (
+        "retrieval_mode",
+        "semantic_enabled",
+        "semantic_backend",
+        "embedding_provider",
+        "embedding_model",
+        "embedded_record_count",
+        "pending_embedding_count",
+        "semantic_health",
+    ):
+        lines.append(f"{key}: {status.get(key)}")
+    if status.get("warnings"):
+        lines.append("\n## Warnings")
+        for w in status["warnings"]:
+            lines.append(f"- {w}")
+    return "\n".join(lines)
