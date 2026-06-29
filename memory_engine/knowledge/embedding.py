@@ -61,7 +61,11 @@ class SentenceTransformersProvider:
 
             if self._model is None:
                 self._model = SentenceTransformer(self.model_name)
-                self.dimension = int(self._model.get_sentence_embedding_dimension())
+                # sentence-transformers ≥3.x renamed the method; try new API first
+                try:
+                    self.dimension = int(self._model.get_embedding_dimension())
+                except AttributeError:
+                    self.dimension = int(self._model.get_sentence_embedding_dimension())
             return True
         except Exception:
             return False
