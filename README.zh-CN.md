@@ -55,7 +55,7 @@ Memory Engine 通过维护一棵结构化的、有证据支撑的记忆树，以
 | **任务完成后自动反思** | Agent 汇报结果，系统决定是否留存知识及以何种形式留存 |
 | **知识来源摄取** | Markdown、代码、ADR、测试报告、运行日志、Git Diff |
 | **本地 FTS5 检索** | SQLite FTS5 + Porter 分词器，无需外部搜索引擎 |
-| **可选向量检索** | InMemoryVectorIndex（临时）或未来的持久化向量后端 |
+| **可选语义检索** | 持久化本地 sqlite-vec 后端，配合 sentence-transformers / Ollama 嵌入（Phase 13）；默认关闭，无必需依赖 |
 | **词法结构化降级模式** | 无向量后端时自动降级，全量检索依然可用 |
 | **统一 ContextPack** | 记忆 + 知识合并、去重、Token 预算裁剪 |
 | **检索可追溯** | 每次响应包含逐信号评分明细 |
@@ -559,6 +559,65 @@ memory seed my-project --project-root /path/to/project
 
 ---
 
+## Phase 13 — 本地持久化向量检索与混合语义召回
+
+纯词法的 FTS5 检索只能匹配 **词元**，无法匹配 **语义**：查询「DB schema upgrade」
+不会命中写作「database migration」的片段，尽管二者含义相同。对 Coding Agent 而言，
+这会造成静默漏召回——相关的 ADR、约束或历史事故确实存在，只是措辞与查询不同。
+
+Phase 13 引入一个可选的 **本地持久化语义索引**，让检索也能基于语义召回，同时保持
+默认安装的轻量与离线。
+
+```
+查询
+  ├── FTS5 词法检索          （始终启用）
+  ├── sqlite-vec 语义检索    （可选，默认关闭）
+  ├── 分支 / 修订 / 生命周期过滤
+  ├── RRF 候选融合
+  ├── 确定性多信号排序器
+  └── Token 预算约束的 UnifiedContextPack
+```
+
+**设计保证**
+
+- 默认 `uv sync` 不安装任何额外内容——不下载模型，不新增必需依赖。
+- [sqlite-vec](https://github.com/asg017/sqlite-vec) 为持久化后端：无需 Docker、无需外部服务。
+- sentence-transformers 与 Ollama 是可选的 **本地** Embedding Provider，绝不调用云端 API。
+- 语义关闭时，FTS5 词法回退路径完全不变。
+- 语义结果同样受分支 / 修订 / 生命周期安全过滤约束，绝不绕过。
+- Embedding 前内容先经 `redact()` 脱敏，密钥不会进入模型或 `vector.db`。
+
+### 启用方式
+
+```bash
+# 1. 安装后端 + Provider（任选其一）
+uv pip install 'memory-engine[semantic-transformers]'   # 本地 sentence-transformers
+# 或：uv pip install 'memory-engine[semantic-ollama]'     # 本地 Ollama
+# 或：uv pip install 'memory-engine[semantic-sqlite]'     # 仅后端
+
+# 2. 打开开关（环境变量或 .memory-engine 配置）
+export MEMORY_ENGINE_SEMANTIC_ENABLED=1
+export MEMORY_ENGINE_EMBEDDING_PROVIDER=sentence_transformers
+export MEMORY_ENGINE_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+```
+
+启用且可用时，`retrieval_mode` 变为 `hybrid`、后端为 `sqlite_vec`；否则引擎保持
+`lexical_structured_fallback`，并附带诊断警告说明原因。
+
+### CLI
+
+```bash
+memory semantic status  --project-root .   # Provider/后端/模型 + 已嵌入数量
+memory semantic doctor  --project-root .   # 可用性、维度、孤儿向量检查
+memory semantic reindex --project-root .   # 增量嵌入（--full 全量重建）
+memory semantic clear   --project-root . --confirm   # 仅清除向量
+```
+
+向量存储于 `.memory-engine/vector.db`。`clear` 绝不触及源知识或记忆树。
+详见 [docs/local_vector_retrieval.md](docs/local_vector_retrieval.md)。
+
+---
+
 ## 人工种子知识
 
 通过以下文件为 Agent 提供无法从代码中安全推断的稳定项目知识：
@@ -605,11 +664,13 @@ memory seed my-project --project-root /path/to/project
 - 新鲜度（时效性权重）
 - 项目级别 TTL 缓存
 
-### 增强模式：`hybrid_lexical_vector`
+### 增强模式：`hybrid`（Phase 13）
 
-当持久化向量后端健康时启用。通过 RRF 融合增加嵌入余弦相似度信号。
+当语义检索已启用，且 sqlite-vec 与本地 Embedding Provider 均可用时启用。
+通过 RRF 融合，对 chunk / 段落 / 命题 / 摘要的嵌入计算真实余弦相似度。
+检索 trace 中的 `semantic_similarity` 反映实际向量得分（不再恒为 0.0）。详见上文 Phase 13 章节。
 
-**向量检索是可选的。** 默认本地模式无需 Qdrant、Docker 或任何外部服务即可正常工作。
+**向量检索是可选的。** 默认本地模式无需 sqlite-vec、Qdrant、Docker 或任何外部服务即可正常工作。
 
 当向量检索不可用时，响应中会附带降级模式提示：
 
@@ -799,7 +860,8 @@ pytest tests/test_phase7.py -v
 pytest -k "recall" -v
 ```
 
-目前共 473 个测试，全部确定性通过，无需外部服务。
+目前共 511 个测试，全部确定性通过，无需外部服务。
+（语义检索测试使用 mock Provider 或 `pytest.importorskip("sqlite_vec")`，测试过程不下载任何模型。）
 
 ---
 

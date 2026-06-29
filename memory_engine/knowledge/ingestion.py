@@ -83,10 +83,25 @@ class KnowledgeIngestionService:
         session: Session,
         vector_index: KnowledgeVectorIndex | None = None,
         cache: SimpleCache | None = None,
+        semantic_index=None,  # type: ignore[no-untyped-def]  # Phase 13: SqliteVecIndex | None
     ) -> None:
         self._session = session
         self._vector_index: KnowledgeVectorIndex = vector_index or _get_default_vector_index()
         self._cache = cache or get_global_cache()
+        # Phase 13: optional persistent semantic index. Embedding is incremental
+        # (content_hash-gated) and never fails the overall ingestion.
+        self._semantic_index = semantic_index
+        self._embeddings_generated = 0
+
+    def _embed(self, record_id: str, content: str, metadata: dict) -> None:
+        """Best-effort embedding upsert. Failures are swallowed, never raised."""
+        if self._semantic_index is None:
+            return
+        try:
+            if self._semantic_index.upsert(record_id, content, metadata):
+                self._embeddings_generated += 1
+        except Exception:
+            pass
 
     def ingest(self, req: KnowledgeIngestRequest) -> KnowledgeIngestResult:
         """Ingest a single document.  Returns immediately (synchronous path)."""
@@ -229,6 +244,19 @@ class KnowledgeIngestionService:
                     "tags": req.tags,
                 },
             )
+            # Phase 13: persistent semantic embedding (incremental, best-effort)
+            self._embed(
+                chunk.chunk_id,
+                chunk_content_str,
+                {
+                    "project_id": project_id_str,
+                    "record_type": "chunk",
+                    "branch_name": req.branch_name,
+                    "branch_scope": "global",
+                    "lifecycle_state": "active",
+                    "source_path": req.source_path,
+                },
+            )
             chunks_created += 1
             job.chunks_done += 1
 
@@ -329,6 +357,18 @@ class KnowledgeIngestionService:
                 section_heading=rp.section_heading,
                 symbol_names=rp.symbol_names,
             )
+            self._embed(
+                para.paragraph_id,
+                content_str,
+                {
+                    "project_id": project_id_str,
+                    "record_type": "paragraph",
+                    "branch_name": branch_name,
+                    "branch_scope": branch_scope or "global",
+                    "lifecycle_state": "active",
+                    "source_path": source_path,
+                },
+            )
 
         # --- Propositions (extracted from full document content) ---
         raw_props = extract_propositions(
@@ -366,6 +406,18 @@ class KnowledgeIngestionService:
                 proposition_id=prop.proposition_id,
                 proposition_text=prop.proposition_text,
                 proposition_type=prop.proposition_type,
+            )
+            self._embed(
+                prop.proposition_id,
+                prop.proposition_text,
+                {
+                    "project_id": project_id_str,
+                    "record_type": "proposition",
+                    "branch_name": branch_name,
+                    "branch_scope": branch_scope or "global",
+                    "lifecycle_state": "active",
+                    "source_path": source_path,
+                },
             )
 
         # --- Module-level summary ---
@@ -420,6 +472,18 @@ class KnowledgeIngestionService:
                     purpose=mod_summary.purpose,
                     key_symbols=mod_summary.key_symbols,
                     granularity_level=mod_summary.granularity_level,
+                )
+                self._embed(
+                    summ_orm.summary_id,
+                    mod_summary.summary_text,
+                    {
+                        "project_id": project_id_str,
+                        "record_type": "summary",
+                        "branch_name": branch_name,
+                        "branch_scope": branch_scope or "global",
+                        "lifecycle_state": "active",
+                        "source_path": source_path,
+                    },
                 )
 
 

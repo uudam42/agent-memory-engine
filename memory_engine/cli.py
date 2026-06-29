@@ -727,5 +727,131 @@ def policy_remove(
         rprint(f"[dim]No [{client}] policy block found to remove.[/dim]")
 
 
+# ---------------------------------------------------------------------------
+# Phase 13 — memory semantic (local persistent vector retrieval)
+# ---------------------------------------------------------------------------
+
+semantic_app = typer.Typer(
+    help="Local persistent vector retrieval (sqlite-vec)", no_args_is_help=True
+)
+app.add_typer(semantic_app, name="semantic")
+
+
+def _semantic_ctx(project_root: Optional[str]):  # type: ignore[no-untyped-def]
+    """Build a bootstrapped ProjectContext for semantic commands."""
+    from memory_engine.mcp.project_context import ProjectContext
+
+    root = _resolve_root(project_root)
+    ctx = ProjectContext(root)
+    ctx.ensure_bootstrapped()
+    return ctx
+
+
+@semantic_app.command("status")
+def semantic_status(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+) -> None:
+    """Show semantic retrieval provider/backend/model and embedded counts."""
+    ctx = _semantic_ctx(project_root)
+    mode = ctx.get_mode_info()
+    index = ctx.get_semantic_index()
+    stats = index.get_stats(ctx.get_project_id()) if index is not None else {}
+
+    table = Table(title="Semantic Retrieval Status", show_header=False)
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("retrieval_mode", mode.mode)
+    table.add_row("semantic_enabled", str(mode.semantic_enabled))
+    table.add_row("backend", mode.vector_backend if mode.semantic_status == "used" else "none")
+    table.add_row("provider", mode.embedding_provider)
+    table.add_row("model", mode.embedding_model)
+    table.add_row("semantic_status", mode.semantic_status)
+    table.add_row("embedded_count", str(stats.get("embedded_count", 0)))
+    table.add_row("dimension", str(stats.get("dimension", 0)))
+    table.add_row("orphan_count", str(stats.get("orphan_count", 0)))
+    console.print(table)
+    for w in mode.warnings:
+        rprint(f"[yellow]⚠[/yellow] {w}")
+
+
+@semantic_app.command("reindex")
+def semantic_reindex(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+    full: bool = typer.Option(False, "--full", help="Clear and rebuild all vectors"),
+) -> None:
+    """Re-embed knowledge records (incremental by default, --full rebuilds)."""
+    ctx = _semantic_ctx(project_root)
+    index = ctx.get_semantic_index()
+    if index is None:
+        rprint(
+            "[yellow]Semantic retrieval is not active.[/yellow] "
+            "Enable MEMORY_ENGINE_SEMANTIC_ENABLED=1 and install "
+            "memory-engine[semantic-sqlite] plus a provider, then retry."
+        )
+        raise typer.Exit(0)
+
+    if full:
+        index.clear_project(ctx.get_project_id())
+        rprint("[dim]Cleared existing vectors for project.[/dim]")
+
+    refresh = ctx.incremental_refresh()
+    stats = index.get_stats(ctx.get_project_id())
+    rprint(f"[green]✓[/green] Reindex complete. embedded={stats.get('embedded_count', 0)}")
+    rprint(f"  changes: {refresh.get('changes')}")
+
+
+@semantic_app.command("doctor")
+def semantic_doctor(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+) -> None:
+    """Diagnose provider/backend availability, dimension and orphan health."""
+    from memory_engine.knowledge.embedding import build_provider
+    from memory_engine.knowledge.semantic import get_semantic_config
+    from memory_engine.knowledge.sqlite_vec_index import sqlite_vec_available
+
+    ctx = _semantic_ctx(project_root)
+    cfg = get_semantic_config()
+    provider = build_provider(cfg)
+    index = ctx.get_semantic_index()
+    stats = index.get_stats(ctx.get_project_id()) if index is not None else {}
+
+    checks = [
+        ("config.enabled", bool(cfg.enabled)),
+        ("sqlite_vec importable", sqlite_vec_available()),
+        ("provider available", provider.is_available()),
+        ("backend active", index is not None),
+        ("no orphan vectors", stats.get("orphan_count", 0) == 0),
+    ]
+    table = Table(title="Semantic Doctor", show_header=True)
+    table.add_column("Check", style="bold")
+    table.add_column("Result")
+    for name, ok in checks:
+        icon = "[green]✓[/green]" if ok else "[red]✗[/red]"
+        table.add_row(name, icon)
+    console.print(table)
+    if stats:
+        rprint(f"[dim]embedded={stats.get('embedded_count', 0)} "
+               f"dim={stats.get('dimension', 0)} "
+               f"orphans={stats.get('orphan_count', 0)}[/dim]")
+
+
+@semantic_app.command("clear")
+def semantic_clear(
+    project_root: Optional[str] = typer.Option(None, "--project-root", "-p"),
+    confirm: bool = typer.Option(False, "--confirm", help="Required to actually clear"),
+) -> None:
+    """Clear vector data only (never source knowledge or memory trees)."""
+    if not confirm:
+        rprint("[yellow]Refusing to clear without --confirm.[/yellow]")
+        raise typer.Exit(1)
+    ctx = _semantic_ctx(project_root)
+    index = ctx.get_semantic_index()
+    if index is None:
+        rprint("[dim]No active vector backend — nothing to clear.[/dim]")
+        raise typer.Exit(0)
+    index.clear_project(ctx.get_project_id())
+    rprint("[green]✓[/green] Vector data cleared (knowledge and memory untouched).")
+
+
 if __name__ == "__main__":
     app()

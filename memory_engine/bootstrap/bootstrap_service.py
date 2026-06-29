@@ -98,6 +98,18 @@ class ProjectBootstrapService:
         self._session: Session | None = None
         self._state_mgr: ProjectStateManager | None = None
         self._project_orm: ProjectORM | None = None
+        self._semantic_index = None
+
+    def _get_semantic_index(self):  # type: ignore[no-untyped-def]
+        """Phase 13: lazily build the persistent vector index (None if disabled)."""
+        if self._semantic_index is None:
+            try:
+                from memory_engine.knowledge.semantic import get_persistent_vector_index
+
+                self._semantic_index = get_persistent_vector_index(self.project_root)
+            except Exception:
+                self._semantic_index = None
+        return self._semantic_index
 
     # ------------------------------------------------------------------
     # Public API
@@ -196,7 +208,8 @@ class ProjectBootstrapService:
         if cs.has_changes:
             vector_idx = self._vector_index or InMemoryVectorIndex()
             ingest_svc = KnowledgeIngestionService(
-                session, vector_index=vector_idx, cache=self._cache
+                session, vector_index=vector_idx, cache=self._cache,
+                semantic_index=self._get_semantic_index(),
             )
 
             # Index new + changed files
@@ -293,7 +306,8 @@ class ProjectBootstrapService:
     ) -> dict[str, int]:
         vector_idx = self._vector_index or InMemoryVectorIndex()
         svc = KnowledgeIngestionService(
-            session, vector_index=vector_idx, cache=self._cache
+            session, vector_index=vector_idx, cache=self._cache,
+            semantic_index=self._get_semantic_index(),
         )
         project_id = uuid.UUID(project_orm.id)
 
@@ -406,12 +420,32 @@ class ProjectBootstrapService:
                 install_claude_code(self.project_root)
         except Exception:
             pass
+        # Phase 13: surface semantic retrieval health in the ready report.
+        try:
+            mode_info = detect_retrieval_mode(project_root=self.project_root)
+            semantic_block = {
+                "semantic_enabled": mode_info.semantic_enabled,
+                "semantic_health": (
+                    "healthy" if mode_info.semantic_status == "used"
+                    else mode_info.semantic_status
+                ),
+                "embedding_provider": mode_info.embedding_provider,
+                "embedding_model": mode_info.embedding_model,
+            }
+        except Exception:
+            semantic_block = {
+                "semantic_enabled": False,
+                "semantic_health": "disabled",
+                "embedding_provider": "none",
+                "embedding_model": "none",
+            }
         return {
             "bootstrap_status": "READY",
             "project_root": str(self.project_root),
             "indexed_documents": state.indexed_documents,
             "indexed_chunks": state.indexed_chunks,
             "already_initialized": True,
+            **semantic_block,
         }
 
 

@@ -94,6 +94,7 @@ def tool_retrieve_agent_context(
             session,
             vector_index=ctx.get_vector_index(),
             cache=ctx.get_cache(),
+            semantic_index=ctx.get_semantic_index(),
         )
         pack = svc.retrieve(UnifiedRetrievalRequest(
             project_id=uuid.UUID(ctx.get_project_id()),
@@ -120,6 +121,13 @@ def tool_retrieve_agent_context(
             branch_aware_ranking=effective_branch is not None,
             git_available=git_ctx.git_available,
             is_repository=git_ctx.is_repository,
+            semantic_backend=(
+                mode_info.vector_backend if mode_info.semantic_status == "used"
+                else "none"
+            ),
+            embedding_provider=mode_info.embedding_provider,
+            embedding_model=mode_info.embedding_model,
+            semantic_status=mode_info.semantic_status,
         )
 
         return {
@@ -387,6 +395,25 @@ def tool_memory_status(ctx: ProjectContext) -> dict[str, Any]:
     # Phase 9: include git context in status
     git_ctx = ctx.get_git_context()
 
+    # Phase 13: semantic retrieval health
+    embedded_count = 0
+    semantic_health = mode_info.semantic_status
+    if mode_info.semantic_status == "used":
+        semantic_health = "healthy"
+        try:
+            sem_index = ctx.get_semantic_index()
+            if sem_index is not None:
+                stats = sem_index.get_stats(ctx.get_project_id())
+                embedded_count = stats.get("embedded_count", 0)
+                if stats.get("orphan_count", 0) > 0:
+                    semantic_health = "degraded"
+        except Exception:
+            semantic_health = "degraded"
+    pending_count = max(0, chunks - embedded_count) if mode_info.semantic_enabled else 0
+    semantic_backend = (
+        mode_info.vector_backend if mode_info.semantic_status == "used" else "none"
+    )
+
     return MemoryStatusOutput(
         project_name=ctx.project_root.name,
         project_root=str(ctx.project_root),
@@ -416,6 +443,14 @@ def tool_memory_status(ctx: ProjectContext) -> dict[str, Any]:
         last_git_sync_at=state.last_git_sync_at,
         branch_aware_retrieval_enabled=state.branch_aware_retrieval_enabled,
         synchronization_status=state.synchronization_status,
+        # Phase 13 semantic fields
+        semantic_enabled=mode_info.semantic_enabled,
+        semantic_backend=semantic_backend,
+        embedding_provider=mode_info.embedding_provider,
+        embedding_model=mode_info.embedding_model,
+        embedded_record_count=embedded_count,
+        pending_embedding_count=pending_count,
+        semantic_health=semantic_health,
     ).model_dump()
 
 

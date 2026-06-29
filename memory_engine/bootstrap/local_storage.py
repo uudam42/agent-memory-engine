@@ -80,6 +80,11 @@ class ProjectLocalStorage:
         return f"sqlite:///{self.db_path}"
 
     @property
+    def vector_db_path(self) -> Path:
+        """Phase 13: persistent sqlite-vec vector store (separate from memory.db)."""
+        return self.storage_dir / "vector.db"
+
+    @property
     def indexes_dir(self) -> Path:
         return self.storage_dir / "indexes"
 

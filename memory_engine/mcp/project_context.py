@@ -103,8 +103,14 @@ class ProjectContext:
 
     def get_mode_info(self) -> RetrievalModeInfo:
         if self._mode_info is None:
-            self._mode_info = detect_retrieval_mode()
+            self._mode_info = detect_retrieval_mode(project_root=self.project_root)
         return self._mode_info
+
+    def get_semantic_index(self):  # type: ignore[no-untyped-def]
+        """Return the persistent SqliteVecIndex for this project, or None."""
+        from memory_engine.knowledge.semantic import get_persistent_vector_index
+
+        return get_persistent_vector_index(self.project_root)
 
     def get_project_id(self) -> str:
         if self._project_id is None:

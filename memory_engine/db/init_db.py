@@ -136,6 +136,67 @@ def create_fts_tables(conn) -> None:  # type: ignore[type-arg]
     """))
 
 
+def migrate_vector_tables(conn, dimension: int = 0) -> dict:  # type: ignore[type-arg]
+    """Phase 13: safe migration for the persistent vector metadata table.
+
+    Operates on a raw sqlite3 connection for the project-local vector.db.
+
+    - Creates vec_metadata if missing (CREATE TABLE IF NOT EXISTS — safe).
+    - Never alters or drops FTS5 tables (those live in memory.db).
+    - If a non-zero dimension is supplied and differs from the stored dimension,
+      logs a warning and clears stale vec records so a clean re-index can run.
+
+    Returns a small report dict: {created, dimension_changed, cleared_count}.
+    """
+    report = {"created": False, "dimension_changed": False, "cleared_count": 0}
+
+    existing = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_metadata'"
+    ).fetchone()
+    if existing is None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vec_metadata (
+                rowid          INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_id      TEXT NOT NULL UNIQUE,
+                project_id     TEXT NOT NULL,
+                record_type    TEXT NOT NULL DEFAULT 'chunk',
+                branch_name    TEXT,
+                branch_scope   TEXT,
+                lifecycle_state TEXT NOT NULL DEFAULT 'active',
+                content_hash   TEXT NOT NULL,
+                model          TEXT NOT NULL,
+                dimension      INTEGER NOT NULL DEFAULT 0,
+                source_path    TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS ix_vec_metadata_project "
+            "ON vec_metadata(project_id, lifecycle_state)"
+        )
+        report["created"] = True
+        conn.commit()
+        return report
+
+    if dimension and dimension > 0:
+        row = conn.execute(
+            "SELECT dimension, COUNT(*) FROM vec_metadata "
+            "WHERE dimension > 0 GROUP BY dimension ORDER BY COUNT(*) DESC LIMIT 1"
+        ).fetchone()
+        if row is not None and int(row[0]) != dimension:
+            report["dimension_changed"] = True
+            cleared = conn.execute("SELECT COUNT(*) FROM vec_metadata").fetchone()[0]
+            conn.execute("DELETE FROM vec_metadata")
+            try:
+                conn.execute("DROP TABLE IF EXISTS vec_items")
+            except Exception:
+                pass
+            report["cleared_count"] = int(cleared)
+            conn.commit()
+    return report
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:

@@ -98,10 +98,13 @@ class UnifiedContextRetrievalService:
         session: Session,
         vector_index: KnowledgeVectorIndex | None = None,
         cache: SimpleCache | None = None,
+        semantic_index=None,  # type: ignore[no-untyped-def]  # Phase 13: SqliteVecIndex | None
     ) -> None:
         self._session = session
         self._vector_index: KnowledgeVectorIndex = vector_index or get_shared_vector_index()
         self._cache: _Cache = cache or get_global_cache()
+        # Phase 13: persistent semantic backend, threaded into knowledge search.
+        self._semantic_index = semantic_index
 
     def retrieve(self, req: UnifiedRetrievalRequest) -> UnifiedContextPack:
         """Run unified memory + knowledge retrieval.
@@ -173,7 +176,9 @@ class UnifiedContextRetrievalService:
 
         if should_search_knowledge:
             k_svc = KnowledgeSearchService(
-                self._session, vector_index=self._vector_index, cache=self._cache
+                self._session, vector_index=self._vector_index, cache=self._cache,
+                semantic_index=self._semantic_index,
+                branch_name=req.current_branch,
             )
             k_req = KnowledgeSearchRequest(
                 project_id=req.project_id,
