@@ -64,28 +64,48 @@ def _gate_words(text: str) -> frozenset[str]:
 def _passes_relevance_gate(task: str, scored: ScoredMemory) -> bool:
     """Return True if the node has at least one topic signal for the task.
 
-    Architecture nodes with no meaningful word overlap AND no structural overlap
-    are excluded before the composer to prevent high-importance/freshness scores
-    from surfacing completely off-domain infrastructure memories.
+    Gate applies to authoritative memory kinds (architecture, decision, constraint)
+    to prevent high-importance/freshness scores from surfacing completely off-domain
+    infrastructure memories.
 
-    Always passes through:
-    - All non-architecture kinds: constraint, decision, procedure, debug, module,
-      outcome — the composer handles those via importance/status gates
-    - Nodes with module_path_overlap or symbol_overlap (structural signal)
-    - Queries with no meaningful content words (short or all-stop-words)
-    Architecture nodes are filtered when they have zero stop-word-filtered
-    topic overlap AND zero structural overlap with the query.
+    A node passes when ANY of the following is true:
+    - Strong structural signal: module_path_overlap > 0 or symbol_overlap > 0
+    - Strong semantic signal: semantic_similarity >= 0.4 (when available)
+    - Lexical overlap: task_words ∩ node_words is non-empty
+    - Task is too short for meaningful gating (all stop-words or < 4 chars per word)
+
+    Gated kinds (applied when none of the above holds):
+    - architecture: always gated (original behavior)
+    - decision: gated — but only when both lexical AND structural signals are zero
+    - constraint: gated — same rule as decision
+
+    Always passes through (composer handles these via importance/status):
+    - procedure, debug (incident), module, outcome
     """
     from memory_engine.models.domain import MemoryKind
 
     node = scored.node
 
-    # Only gate architecture-kind nodes; other kinds handled by composer
-    if node.kind != MemoryKind.architecture:
+    # Gate authoritative kinds that tend to be high-importance and domain-spanning.
+    # constraint is intentionally NOT gated here — constraints are safety-critical
+    # and must surface even when the lexical overlap with the query is low.
+    # Constraint relevance is handled by the ContextComposer's budget allocation.
+    _GATED_KINDS = frozenset({
+        MemoryKind.architecture,
+        MemoryKind.decision,
+    })
+    if node.kind not in _GATED_KINDS:
         return True
 
     bd = scored.score_breakdown
+
+    # Structural signal: file or symbol overlap → strong relevance evidence
     if bd.get("module_path_overlap", 0.0) > 0.0 or bd.get("symbol_overlap", 0.0) > 0.0:
+        return True
+
+    # Semantic signal: high similarity → relevant even without lexical overlap
+    # (handles synonym / multilingual cases)
+    if bd.get("semantic_similarity", 0.0) >= 0.4:
         return True
 
     task_words = _gate_words(task)
@@ -219,6 +239,15 @@ class RecallService:
         # Append gate-excluded nodes to trace so the caller can see why they
         # were dropped (matches existing composer trace contract).
         for s in gate_excluded:
+            # Build a descriptive tree_path matching the composer's convention
+            depth = getattr(s.node, "depth", 0) or 0
+            kind_label = s.node.kind.value.capitalize()
+            if depth == 0:
+                tree_path = ["Project", kind_label]
+            elif depth == 1:
+                tree_path = ["Project", "Subsystem", kind_label]
+            else:
+                tree_path = ["Project", "Subsystem", "Module", kind_label]
             trace.append(TraceEntry(
                 memory_id=str(s.node.id),
                 title=s.node.title,
@@ -227,7 +256,7 @@ class RecallService:
                 score=s.score,
                 score_breakdown=s.score_breakdown,
                 status=s.node.status.value,
-                tree_path=[],
+                tree_path=tree_path,
             ))
 
         return RecallResult(
