@@ -47,6 +47,12 @@ class RetrieveContextInput(BaseModel):
     task_intent: str = "unknown"
     preferred_layers: list[str] = Field(default_factory=list)
     proposition_types: list[str] | None = None
+    # Phase 14: optional workspace handshake — when provided, the server validates
+    # that this request originated from the correct project. Older clients that
+    # do not send these fields are accepted in compatibility mode (with a warning).
+    # Set MEMORY_ENGINE_STRICT_WORKSPACE=1 to require workspace context.
+    workspace_root: str | None = None
+    repository_fingerprint: str | None = None
 
 
 class InspectMemoryInput(BaseModel):
@@ -78,6 +84,9 @@ class ReflectAndWriteInput(BaseModel):
     head_commit: str | None = None
     # Phase 11: allow agent to pass intent explicitly instead of relying on inference
     task_intent: str | None = None
+    # Phase 14: optional workspace handshake (same semantics as RetrieveContextInput)
+    workspace_root: str | None = None
+    repository_fingerprint: str | None = None
 
 
 class SeedProjectInput(BaseModel):
