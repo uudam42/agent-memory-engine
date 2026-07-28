@@ -17,6 +17,7 @@ Never calls an external API or LLM.
 
 from __future__ import annotations
 
+import re
 from sqlalchemy.orm import Session
 
 from memory_engine.models.domain import (
@@ -26,7 +27,9 @@ from memory_engine.models.domain import (
     RecallRequest,
     RecallResult,
     RoutingPlan,
+    ScoredMemory,
     TaskIntent,
+    TraceEntry,
 )
 from memory_engine.repositories.memory_node import MemoryNodeRepository
 from memory_engine.repositories.project import ProjectRepository
@@ -35,6 +38,64 @@ from memory_engine.skills.composer import ContextComposer
 from memory_engine.skills.query_analyzer import DeterministicQueryAnalyzer, QueryAnalyzerProtocol
 from memory_engine.skills.ranker import DeterministicRanker
 from memory_engine.skills.router import SkillRouter
+
+# Words that carry no topic signal and would cause false Jaccard matches.
+_GATE_STOP_WORDS = frozenset({
+    "use", "used", "uses", "using", "for", "the", "and", "with", "all",
+    "must", "can", "are", "not", "per", "its", "our", "how", "should",
+    "what", "this", "that", "from", "have", "has", "was", "will", "been",
+    "into", "any", "but", "via", "such", "each", "also", "may", "new",
+    "get", "set", "let", "only", "than", "over", "when", "then", "here",
+    "more", "some", "very", "just", "like", "make", "take", "need",
+})
+
+# Minimum character length for a word to be considered a topic signal.
+_GATE_MIN_WORD_LEN = 4
+
+
+def _gate_words(text: str) -> frozenset[str]:
+    """Extract meaningful words (length >= 4, not stop words) for gate check."""
+    return frozenset(
+        w for w in re.findall(r"\w+", text.lower())
+        if len(w) >= _GATE_MIN_WORD_LEN and w not in _GATE_STOP_WORDS
+    )
+
+
+def _passes_relevance_gate(task: str, scored: ScoredMemory) -> bool:
+    """Return True if the node has at least one topic signal for the task.
+
+    Architecture nodes with no meaningful word overlap AND no structural overlap
+    are excluded before the composer to prevent high-importance/freshness scores
+    from surfacing completely off-domain infrastructure memories.
+
+    Always passes through:
+    - All non-architecture kinds: constraint, decision, procedure, debug, module,
+      outcome — the composer handles those via importance/status gates
+    - Nodes with module_path_overlap or symbol_overlap (structural signal)
+    - Queries with no meaningful content words (short or all-stop-words)
+    Architecture nodes are filtered when they have zero stop-word-filtered
+    topic overlap AND zero structural overlap with the query.
+    """
+    from memory_engine.models.domain import MemoryKind
+
+    node = scored.node
+
+    # Only gate architecture-kind nodes; other kinds handled by composer
+    if node.kind != MemoryKind.architecture:
+        return True
+
+    bd = scored.score_breakdown
+    if bd.get("module_path_overlap", 0.0) > 0.0 or bd.get("symbol_overlap", 0.0) > 0.0:
+        return True
+
+    task_words = _gate_words(task)
+    if not task_words:
+        return True  # too short to gate meaningfully
+
+    node_text = f"{node.title} {node.summary} {' '.join(node.tags)}"
+    node_words = _gate_words(node_text)
+
+    return bool(task_words & node_words)
 
 
 class RecallService:
@@ -128,6 +189,7 @@ class RecallService:
             intent=routing_plan.task_intent,
             current_files=enriched_files,
             current_symbols=enriched_symbols,
+            current_branch=request.current_branch,
         )
 
         # -- Compose context pack under budget ----------------------------
@@ -137,13 +199,36 @@ class RecallService:
             or routing_plan.task_intent in (TaskIntent.bug_fix, TaskIntent.test_failure)
         )
 
+        # -- Relevance gate: remove nodes with no topic signal ----------------
+        # Nodes that share no meaningful words with the task (after stop-word
+        # filtering) and have no file/symbol structural overlap are excluded
+        # before the composer. Without this gate, importance+freshness+confidence
+        # can surface high-quality but completely off-topic memories.
+        task = request.current_task
+        gate_passed = [s for s in scored if _passes_relevance_gate(task, s)]
+        gate_excluded = [s for s in scored if not _passes_relevance_gate(task, s)]
+
         pack, trace = self._composer.compose(
             project=project,
-            scored_nodes=scored,
+            scored_nodes=gate_passed,
             routing_plan=routing_plan,
             include_evidence=expand_evidence,
             token_budget=budget,
         )
+
+        # Append gate-excluded nodes to trace so the caller can see why they
+        # were dropped (matches existing composer trace contract).
+        for s in gate_excluded:
+            trace.append(TraceEntry(
+                memory_id=str(s.node.id),
+                title=s.node.title,
+                action="excluded",
+                reason="Relevance gate: no topic-signal overlap with current task",
+                score=s.score,
+                score_breakdown=s.score_breakdown,
+                status=s.node.status.value,
+                tree_path=[],
+            ))
 
         return RecallResult(
             context_pack=pack,

@@ -62,6 +62,7 @@ class SimpleCache:
         current_branch: str | None = None,
         head_commit: str | None = None,
         working_tree_dirty: bool = False,
+        memory_generation: int = 0,
     ) -> str:
         payload = json.dumps({
             "pid": project_id,
@@ -75,6 +76,10 @@ class SimpleCache:
             "branch": current_branch,
             "commit": head_commit,
             "dirty": working_tree_dirty,
+            # Incremented whenever a memory is written so that retrieval after
+            # reflect_and_write() always misses the cache even when branch/commit
+            # has not changed (e.g. writing memories mid-session).
+            "mem_gen": memory_generation,
         }, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:32]
 

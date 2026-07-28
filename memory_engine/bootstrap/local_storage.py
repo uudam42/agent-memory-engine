@@ -155,6 +155,42 @@ class ProjectLocalStorage:
         ):
             d.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def fingerprint_path(self) -> Path:
+        """File that records the canonical project root path on first bind."""
+        return self.storage_dir / "project.fingerprint"
+
+    def bind_fingerprint(self) -> None:
+        """Write the canonical project root path as the fingerprint.
+
+        Called on first initialization. Idempotent if the fingerprint already
+        matches; raises ProjectRootMismatchError if it conflicts.
+        """
+        canonical = str(self.project_root)
+        if self.fingerprint_path.exists():
+            self.verify_project_fingerprint()
+        else:
+            self.fingerprint_path.write_text(canonical, encoding="utf-8")
+
+    def verify_project_fingerprint(self) -> None:
+        """Raise ProjectRootMismatchError if the stored fingerprint does not
+        match the current project root.
+
+        This prevents a copied .memory-engine/ from silently inheriting
+        another project's memories.  No-ops if no fingerprint exists yet
+        (pre-fingerprint databases are treated as unbound).
+        """
+        if not self.fingerprint_path.exists():
+            return  # unbound — skip check; bind_fingerprint() will write it
+        stored = self.fingerprint_path.read_text(encoding="utf-8").strip()
+        current = str(self.project_root)
+        if stored != current:
+            raise ProjectRootMismatchError(
+                f"Memory Engine refuses to open: .memory-engine/ was created for "
+                f"'{stored}' but is being accessed from '{current}'. "
+                "Delete .memory-engine/ or re-run 'memory init' in this directory."
+            )
+
     def is_initialized(self) -> bool:
         """Return True if the storage directory exists and has a DB."""
         return self.storage_dir.exists() and self.db_path.exists()
@@ -172,3 +208,7 @@ class ProjectLocalStorage:
         hint_path = self.storage_dir / ".gitignore-hint"
         if not hint_path.exists():
             hint_path.write_text(_GITIGNORE_BLOCK, encoding="utf-8")
+
+
+class ProjectRootMismatchError(RuntimeError):
+    """Raised when .memory-engine/ fingerprint does not match the current project root."""

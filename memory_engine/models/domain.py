@@ -327,6 +327,7 @@ class RecallRequest(BaseModel):
     current_symbols: list[str] = Field(default_factory=list)
     token_budget: int | None = None
     routing_plan: RoutingPlan | None = None
+    current_branch: str | None = None
 
 
 class TraceEntry(BaseModel):
