@@ -128,6 +128,7 @@ class RecallService:
             intent=routing_plan.task_intent,
             current_files=enriched_files,
             current_symbols=enriched_symbols,
+            current_branch=request.current_branch,
         )
 
         # -- Compose context pack under budget ----------------------------

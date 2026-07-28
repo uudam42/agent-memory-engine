@@ -146,6 +146,7 @@ class UnifiedContextRetrievalService:
             current_files=req.current_files,
             current_symbols=req.current_symbols,
             token_budget=memory_budget,
+            current_branch=req.current_branch,
         )
         recall_result = recall_svc.recall(recall_req)
         memory_pack = recall_result.context_pack
