@@ -289,6 +289,8 @@ class ProjectBootstrapService:
     def _ensure_project(self, session: Session) -> ProjectORM:
         if self._project_orm is not None:
             return self._project_orm
+        # Verify this .memory-engine/ belongs to the current project root (Bug E)
+        self.storage.verify_project_fingerprint()
         name = self.project_root.name
         existing = session.query(ProjectORM).filter_by(name=name).first()
         if existing:
@@ -298,6 +300,8 @@ class ProjectBootstrapService:
         session.add(orm)
         session.commit()
         session.refresh(orm)
+        # Bind fingerprint on first project creation so subsequent opens are verified
+        self.storage.bind_fingerprint()
         self._project_orm = orm
         return orm
 

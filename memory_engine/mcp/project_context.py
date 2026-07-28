@@ -114,7 +114,8 @@ class ProjectContext:
 
     def get_project_id(self) -> str:
         if self._project_id is None:
-            # Try loading from DB
+            # Verify fingerprint before trusting the local DB (Bug E)
+            self.storage.verify_project_fingerprint()
             session = self.get_session()
             try:
                 from memory_engine.models.orm import ProjectORM
