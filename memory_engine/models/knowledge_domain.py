@@ -318,6 +318,10 @@ class UnifiedRetrievalRequest(BaseModel):
     task_intent: str = "unknown"
     preferred_layers: list[str] = Field(default_factory=list)
     proposition_types: list[str] | None = None
+    # Phase 14: memory generation counter — increments on every reflect_and_write so
+    # the cache always misses after a memory write even if branch/commit is unchanged.
+    # Callers read this from ProjectState.memory_revision before calling retrieve().
+    memory_generation: int = 0
 
 
 class KnowledgeIngestRequest(BaseModel):
