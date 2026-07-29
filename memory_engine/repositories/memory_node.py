@@ -28,6 +28,8 @@ class MemoryNodeRepository:
         source_path: str | None = None,
         source_hash: str | None = None,
         source_symbol: str | None = None,
+        constraint_scope: str | None = None,
+        constraint_scope_ref: str | None = None,
     ) -> MemoryNodeORM:
         obj = MemoryNodeORM(
             project_id=project_id,
@@ -44,6 +46,8 @@ class MemoryNodeRepository:
             source_path=source_path,
             source_hash=source_hash,
             source_symbol=source_symbol,
+            constraint_scope=constraint_scope,
+            constraint_scope_ref=constraint_scope_ref,
         )
         self._s.add(obj)
         self._s.commit()
@@ -178,6 +182,9 @@ class MemoryNodeRepository:
         importance: float | None = None,
         tags: list[str] | None = None,
         status: str | None = None,
+        branch_name: str | None = None,
+        constraint_scope: str | None = None,
+        constraint_scope_ref: str | None = None,
     ) -> MemoryNodeORM | None:
         """Patch a subset of mutable fields."""
         obj = self.get_bare(node_id)
@@ -193,6 +200,12 @@ class MemoryNodeRepository:
             obj.tags = tags
         if status is not None:
             obj.status = status
+        if branch_name is not None:
+            obj.branch_name = branch_name
+        if constraint_scope is not None:
+            obj.constraint_scope = constraint_scope
+        if constraint_scope_ref is not None:
+            obj.constraint_scope_ref = constraint_scope_ref
         self._s.commit()
         self._s.refresh(obj)
         return obj

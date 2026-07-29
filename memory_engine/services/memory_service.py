@@ -66,6 +66,8 @@ class MemoryService:
             source_path=payload.source_path,
             source_hash=payload.source_hash,
             source_symbol=payload.source_symbol,
+            constraint_scope=payload.constraint_scope,
+            constraint_scope_ref=payload.constraint_scope_ref,
         )
         return MemoryNode.model_validate(orm)
 

@@ -103,6 +103,8 @@ class PostTaskService:
                 evidence_source=candidate_data.evidence_source,
                 source_path=candidate_data.source_path,
                 source_symbol=candidate_data.source_symbol,
+                proposed_constraint_scope=candidate_data.proposed_constraint_scope,
+                proposed_constraint_scope_ref=candidate_data.proposed_constraint_scope_ref,
             )
 
             # b) Promote immediately (single pipeline call)

@@ -118,6 +118,20 @@ class MemoryNodeORM(Base):
     # Phase 15 follow-up (Task 8): optional symbol-level evidence, nullable.
     source_symbol: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
+    # Issue 2 (scope-aware constraints): explicit scope for constraint-kind
+    # nodes. Nullable — legacy rows and non-constraint kinds leave this NULL;
+    # effective scope for legacy constraints is derived conservatively at
+    # read time (see memory_engine.services.constraint_scope), never
+    # defaulted to 'global' by the migration itself.
+    constraint_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Path reference used only for ConstraintScope.path eligibility checks.
+    # Deliberately separate from source_path/source_hash (Issue 1): setting
+    # this never subjects a constraint to SourceValidityService's hash/
+    # existence-drift checks, preserving the Phase 3A guarantee that
+    # constraint/procedure/decision candidates are never auto-bound to
+    # source_path for staleness detection.
+    constraint_scope_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
         "MemoryNodeORM", remote_side="MemoryNodeORM.id", back_populates="children"
@@ -215,5 +229,9 @@ class MemoryCandidateORM(Base):
     # ReflectionSkill through to promotion, nullable/additive.
     source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     source_symbol: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # Issue 2: proposed scope for constraint-kind candidates (nullable).
+    proposed_constraint_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    proposed_constraint_scope_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="candidates")

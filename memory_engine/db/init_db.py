@@ -79,6 +79,12 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("memory_nodes", "source_symbol", "VARCHAR(256)"),
     ("memory_candidates", "source_path", "VARCHAR(1024)"),
     ("memory_candidates", "source_symbol", "VARCHAR(256)"),
+    # Issue 2 (scope-aware constraints): explicit scope column, no DEFAULT —
+    # legacy rows get NULL (never silently promoted to 'global').
+    ("memory_nodes", "constraint_scope", "VARCHAR(32)"),
+    ("memory_nodes", "constraint_scope_ref", "VARCHAR(1024)"),
+    ("memory_candidates", "proposed_constraint_scope", "VARCHAR(32)"),
+    ("memory_candidates", "proposed_constraint_scope_ref", "VARCHAR(1024)"),
 ]
 
 

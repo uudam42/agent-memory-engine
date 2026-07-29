@@ -105,6 +105,42 @@ class TaskIntent(StrEnum):
     unknown = "unknown"
 
 
+class ConstraintScope(StrEnum):
+    """Issue 2 — the authority radius of a ``constraint`` (or similar
+    always-relevant-by-default) memory node.
+
+    Determines whether a constraint may bypass the topical relevance gate:
+      global        — applies everywhere in every task, regardless of topic
+                       (e.g. "never log secrets"). Bypasses relevance gating
+                       only when additionally active, sufficiently confident,
+                       and (once Issue 3 lands) sufficiently trusted.
+      repository    — applies anywhere within this project/repository, but
+                       is not asserted to be universally true. Default,
+                       conservative fallback for legacy/unscoped constraints.
+      branch        — applies only on a specific branch (node.branch_name).
+      module        — applies only when the current task/module overlaps
+                       node.module_path.
+      path          — applies only when the current task touches
+                       node.source_path directly.
+      symbol        — applies only when the current task touches
+                       node.source_symbol directly.
+      task_intent   — applies only for a compatible task intent (matched via
+                       an "intent:<value>" tag convention).
+      needs_scope_review — scope could not be determined safely; the
+                       constraint never bypasses the relevance gate until a
+                       human/explicit process assigns a real scope.
+    """
+
+    global_ = "global"
+    repository = "repository"
+    branch = "branch"
+    module = "module"
+    path = "path"
+    symbol = "symbol"
+    task_intent = "task_intent"
+    needs_scope_review = "needs_scope_review"
+
+
 class TaskComplexity(StrEnum):
     trivial = "trivial"
     low = "low"
@@ -227,6 +263,13 @@ class MemoryNodeCreate(MemoryNodeBase):
     # Phase 15 follow-up: optional symbol evidence (Task 8) — only set when the
     # caller identified exactly one symbol inside the single source_path file.
     source_symbol: str | None = None
+    # Issue 2: explicit constraint scope. None on non-constraint kinds and on
+    # constraints whose scope was not explicitly determined (effective scope
+    # is then derived conservatively — see constraint_scope service).
+    constraint_scope: str | None = None
+    # Path reference for ConstraintScope.path eligibility only — deliberately
+    # independent of source_path/source_hash (see MemoryNodeORM docstring).
+    constraint_scope_ref: str | None = None
 
 
 class MemoryNode(MemoryNodeBase):
@@ -258,6 +301,10 @@ class MemoryNode(MemoryNodeBase):
     validity_checked_at: datetime | None = None
     previous_status: MemoryStatus | None = None  # audit trail for last automatic transition
     source_symbol: str | None = None          # optional symbol-level evidence (Task 8)
+
+    # Issue 2: explicit constraint scope (nullable — see ConstraintScope).
+    constraint_scope: str | None = None
+    constraint_scope_ref: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +518,11 @@ class CandidateCreate(BaseModel):
     # files with no single declared primary source — never guessed.
     source_path: str | None = None
     source_symbol: str | None = None
+    # Issue 2: proposed scope for constraint-kind candidates. Derived
+    # conservatively by ReflectionSkill — never inferred as 'global' purely
+    # from proposed_kind == constraint.
+    proposed_constraint_scope: str | None = None
+    proposed_constraint_scope_ref: str | None = None
 
 
 class PersistedCandidate(CandidateCreate):

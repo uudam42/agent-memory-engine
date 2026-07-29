@@ -36,6 +36,7 @@ from memory_engine.models.domain import (
 )
 from memory_engine.repositories.memory_node import MemoryNodeRepository
 from memory_engine.repositories.project import ProjectRepository
+from memory_engine.services.constraint_scope import constraint_is_eligible
 from memory_engine.services.memory_service import ProjectNotFoundError
 from memory_engine.services.source_validity import SourceValidityService
 from memory_engine.skills.composer import ContextComposer
@@ -78,12 +79,18 @@ def _gate_words(text: str) -> frozenset[str]:
     )
 
 
-def _passes_relevance_gate(task: str, scored: ScoredMemory) -> bool:
+def _passes_relevance_gate(
+    task: str,
+    scored: ScoredMemory,
+    current_files: list[str] | None = None,
+    current_branch: str | None = None,
+    task_intent: str | None = None,
+) -> bool:
     """Return True if the node has at least one topic signal for the task.
 
-    Gate applies to authoritative memory kinds (architecture, decision, constraint)
-    to prevent high-importance/freshness scores from surfacing completely off-domain
-    infrastructure memories.
+    Gate applies to authoritative memory kinds (architecture, decision) to
+    prevent high-importance/freshness scores from surfacing completely
+    off-domain infrastructure memories.
 
     A node passes when ANY of the following is true:
     - Strong structural signal: module_path_overlap > 0 or symbol_overlap > 0
@@ -94,7 +101,13 @@ def _passes_relevance_gate(task: str, scored: ScoredMemory) -> bool:
     Gated kinds (applied when none of the above holds):
     - architecture: always gated (original behavior)
     - decision: gated — but only when both lexical AND structural signals are zero
-    - constraint: gated — same rule as decision
+
+    constraint: NOT handled by this generic gate at all (Issue 2). Instead,
+    a constraint bypasses the topical gate only when its explicit or
+    inferred ConstraintScope makes it eligible for the current request (see
+    constraint_scope.constraint_is_eligible) — an unscoped/off-topic
+    constraint no longer surfaces on every task merely because its kind is
+    "constraint". See _passes_constraint_gate below.
 
     Always passes through (composer handles these via importance/status):
     - procedure, debug (incident), module, outcome
@@ -103,10 +116,10 @@ def _passes_relevance_gate(task: str, scored: ScoredMemory) -> bool:
 
     node = scored.node
 
+    if node.kind == MemoryKind.constraint:
+        return _passes_constraint_gate(scored, current_files, current_branch, task_intent)
+
     # Gate authoritative kinds that tend to be high-importance and domain-spanning.
-    # constraint is intentionally NOT gated here — constraints are safety-critical
-    # and must surface even when the lexical overlap with the query is low.
-    # Constraint relevance is handled by the ContextComposer's budget allocation.
     _GATED_KINDS = frozenset({
         MemoryKind.architecture,
         MemoryKind.decision,
@@ -133,6 +146,31 @@ def _passes_relevance_gate(task: str, scored: ScoredMemory) -> bool:
     node_words = _gate_words(node_text)
 
     return bool(task_words & node_words)
+
+
+def _passes_constraint_gate(
+    scored: ScoredMemory,
+    current_files: list[str] | None,
+    current_branch: str | None,
+    task_intent: str | None,
+) -> bool:
+    """Issue 2 — scope-aware constraint eligibility.
+
+    Replaces the old "constraint always bypasses the relevance gate"
+    behavior. A constraint now surfaces unconditionally only when its scope
+    makes it eligible for the current request; otherwise it is subject to
+    the same topical gate as any other memory kind (falls through below).
+    """
+    bd = scored.score_breakdown
+    eligible = constraint_is_eligible(
+        scored.node,
+        module_path_overlap=bd.get("module_path_overlap", 0.0),
+        symbol_overlap=bd.get("symbol_overlap", 0.0),
+        current_files=current_files,
+        current_branch=current_branch,
+        task_intent=task_intent,
+    )
+    return eligible
 
 
 class RecallService:
@@ -287,8 +325,15 @@ class RecallService:
         # before the composer. Without this gate, importance+freshness+confidence
         # can surface high-quality but completely off-topic memories.
         task = request.current_task
-        gate_passed = [s for s in scored if _passes_relevance_gate(task, s)]
-        gate_excluded = [s for s in scored if not _passes_relevance_gate(task, s)]
+        gate_intent = routing_plan.task_intent.value if routing_plan.task_intent else None
+        gate_passed = [
+            s for s in scored
+            if _passes_relevance_gate(task, s, enriched_files, request.current_branch, gate_intent)
+        ]
+        gate_excluded = [
+            s for s in scored
+            if not _passes_relevance_gate(task, s, enriched_files, request.current_branch, gate_intent)
+        ]
 
         pack, trace = self._composer.compose(
             project=project,

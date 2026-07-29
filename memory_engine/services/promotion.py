@@ -445,6 +445,8 @@ class PromotionService:
             source_path=source_path,
             source_hash=source_hash,
             source_symbol=candidate.source_symbol,
+            constraint_scope=candidate.proposed_constraint_scope,
+            constraint_scope_ref=candidate.proposed_constraint_scope_ref,
         )
         return MemoryNode.model_validate(orm)
 

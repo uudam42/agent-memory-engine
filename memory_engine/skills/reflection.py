@@ -42,6 +42,7 @@ from uuid import UUID
 
 from memory_engine.models.domain import (
     CandidateCreate,
+    ConstraintScope,
     MemoryKind,
     ReflectionAnalysis,
     ReflectionInput,
@@ -50,6 +51,7 @@ from memory_engine.models.domain import (
     TaskOutcome,
     VerificationStatus,
 )
+from memory_engine.services.constraint_scope import infer_candidate_scope
 
 # ---------------------------------------------------------------------------
 # Thresholds
@@ -274,6 +276,31 @@ class ReflectionSkill:
         source_path, source_symbol = _derive_source_evidence(inp)
 
         # a) Discovered constraints
+        # Issue 2: derive a conservative constraint_scope from the same
+        # structured signals already available here (module_path / touched
+        # files / touched symbols). Never global — a constraint discovered
+        # during a single task is not thereby asserted to be universally
+        # true; only an explicit, separately-reviewed process should mark a
+        # constraint global (see constraint_scope.py docstring).
+        proposed_scope = infer_candidate_scope(
+            module_path=inp.module_path,
+            touched_files=inp.touched_files,
+            touched_symbols=inp.touched_symbols,
+            branch_name=None,
+            branch_explicit=False,
+        )
+        # For path scope, attach the same unambiguous single touched file as
+        # a scope reference — via proposed_constraint_scope_ref, which is
+        # deliberately independent of source_path/source_symbol (Task 7 /
+        # Phase 3A A1: constraint candidates are never auto-bound to
+        # source_path, since that field drives Issue 1's hash-drift
+        # invalidation, which is inappropriate for human-confirmed policy
+        # statements). Symbol scope relies on the symbol already being
+        # present in proposed_tags (via _derive_tags) for eligibility
+        # matching — no dedicated field needed.
+        constraint_scope_ref = (
+            source_path if proposed_scope == ConstraintScope.path else None
+        )
         for constraint_text in inp.discovered_constraints:
             candidates.append(CandidateCreate(
                 project_id=inp.project_id,
@@ -287,6 +314,8 @@ class ReflectionSkill:
                 importance=0.92,
                 evidence_content=inp.outcome_summary,
                 evidence_source="post_task_reflection",
+                proposed_constraint_scope=proposed_scope.value,
+                proposed_constraint_scope_ref=constraint_scope_ref,
             ))
         if inp.discovered_constraints:
             reasoning.append(
