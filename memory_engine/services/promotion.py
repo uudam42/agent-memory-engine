@@ -42,6 +42,8 @@ Stale-marking: if the action is supersede, the old node's status is set to
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy.orm import Session
 
 from memory_engine.models.domain import (
@@ -77,7 +79,7 @@ class ProjectNotFoundError(KeyError):
 
 
 class PromotionService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, project_root: str | Path | None = None) -> None:
         self._candidates = CandidateRepository(session)
         self._nodes = MemoryNodeRepository(session)
         self._evidence = EvidenceRepository(session)
@@ -87,6 +89,14 @@ class PromotionService:
         self._dedup = DeduplicationService()
         self._conflict = ConflictService()
         self._consolidation = ConsolidationService(session)
+        # Phase 15 follow-up (Task 2/3): when project_root is supplied, a
+        # candidate's source_path (set by ReflectionSkill for single-file,
+        # source-backed candidates) is hashed at node-creation time so the
+        # persisted MemoryNode carries real source_hash evidence. None
+        # preserves prior behavior exactly — source_path may still be
+        # persisted without a hash (existence-only checking), and callers
+        # that never pass project_root (CLI, most unit tests) are unaffected.
+        self._project_root: Path | None = Path(project_root) if project_root else None
 
     # ------------------------------------------------------------------
     # Public API
@@ -410,6 +420,16 @@ class PromotionService:
         if depth > settings.max_tree_depth:
             depth = settings.max_tree_depth
 
+        source_hash: str | None = None
+        source_path = candidate.source_path
+        if source_path and self._project_root is not None:
+            from memory_engine.services.source_validity import compute_source_hash
+            source_hash = compute_source_hash(self._project_root, source_path)
+            # compute_source_hash returns None for missing/unsafe/unreadable
+            # paths — never fabricated. source_path is still persisted as
+            # descriptive evidence even when hashing failed; SourceValidityService
+            # treats a source_path without a hash as existence-only checking.
+
         orm = self._nodes.create(
             project_id=str(candidate.project_id),
             parent_id=str(placement.parent_id) if placement.parent_id else None,
@@ -422,6 +442,9 @@ class PromotionService:
             confidence=candidate.confidence,
             importance=candidate.importance,
             module_path=candidate.proposed_module_path,
+            source_path=source_path,
+            source_hash=source_hash,
+            source_symbol=candidate.source_symbol,
         )
         return MemoryNode.model_validate(orm)
 

@@ -17,6 +17,8 @@ All steps run in the same DB session (single transaction per request).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy.orm import Session
 
 from memory_engine.models.domain import (
@@ -40,11 +42,16 @@ class PostTaskService:
     The service handles all staging, promotion, and consolidation internally.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, project_root: str | Path | None = None) -> None:
         self._session = session
         self._reflection = ReflectionSkill()
         self._candidates = CandidateRepository(session)
-        self._promotion = PromotionService(session)
+        # Phase 15 follow-up (Task 2/4): project_root threads through to
+        # PromotionService so source_path evidence attached by ReflectionSkill
+        # can be hashed at node-creation time. None preserves pre-existing
+        # behavior (source_path may still be persisted; source_hash stays
+        # absent, which is the conservative existence-only checking mode).
+        self._promotion = PromotionService(session, project_root=project_root)
         self._consolidation = ConsolidationService(session)
 
     # ------------------------------------------------------------------
@@ -94,6 +101,8 @@ class PostTaskService:
                 importance=candidate_data.importance,
                 evidence_content=candidate_data.evidence_content,
                 evidence_source=candidate_data.evidence_source,
+                source_path=candidate_data.source_path,
+                source_symbol=candidate_data.source_symbol,
             )
 
             # b) Promote immediately (single pipeline call)

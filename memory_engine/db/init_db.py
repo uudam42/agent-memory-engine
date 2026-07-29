@@ -75,6 +75,10 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("memory_nodes", "validity_reason", "VARCHAR(512)"),
     ("memory_nodes", "validity_checked_at", "DATETIME"),
     ("memory_nodes", "previous_status", "VARCHAR(32)"),
+    # Phase 15 follow-up: source-provenance capture + symbol evidence (Tasks 2, 8)
+    ("memory_nodes", "source_symbol", "VARCHAR(256)"),
+    ("memory_candidates", "source_path", "VARCHAR(1024)"),
+    ("memory_candidates", "source_symbol", "VARCHAR(256)"),
 ]
 
 

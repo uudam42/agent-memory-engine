@@ -124,6 +124,42 @@ def _infer_intent(inp: ReflectionInput) -> TaskIntent:
     return TaskIntent.unknown
 
 
+def _derive_source_evidence(inp: ReflectionInput) -> tuple[str | None, str | None]:
+    """Deterministically identify a single, unambiguous source file (Task 2).
+
+    Returns (source_path, source_symbol).
+
+    Conservative by design:
+      - Exactly one touched file  -> that file becomes source_path (project-relative,
+        as supplied by the caller).
+      - Zero or 2+ touched files  -> source_path is left None. A reflection that
+        summarizes changes across multiple files is not arbitrarily bound to the
+        first one; the existing free-text `source_ref` field already records the
+        full file list for human-readable provenance, but automatic hash/existence
+        based staleness detection requires a single unambiguous file.
+      - source_symbol is only ever set alongside a source_path, and only when
+        exactly one touched_symbol was supplied — a symbol can't be meaningfully
+        bound to an ambiguous file set.
+    """
+    files = [f for f in inp.touched_files if f]
+    if len(files) != 1:
+        return None, None
+    source_path = files[0]
+
+    symbols = [s for s in inp.touched_symbols if s]
+    source_symbol = symbols[0] if len(symbols) == 1 else None
+    return source_path, source_symbol
+
+
+# Kinds treated as "strongly source-backed" (Task 7): an implementation fact
+# or code pattern tied to a specific file, where automatic hash/existence
+# invalidation is appropriate. Constraint, procedure, and decision candidates
+# are treated as human-confirmed / repository-level policy — they should not
+# become non-authoritative merely because one source file's hash drifted,
+# so reflection never auto-binds source_path/source_symbol to them.
+_SOURCE_BACKED_KINDS = frozenset({MemoryKind.debug, MemoryKind.module})
+
+
 def _derive_tags(inp: ReflectionInput) -> list[str]:
     """Build a tag list from files, symbols, and module path."""
     tags: list[str] = []
@@ -233,6 +269,10 @@ class ReflectionSkill:
         candidates: list[CandidateCreate] = []
         reasoning: list[str] = []
 
+        # Task 2/7: derive source evidence once — only applied to source-backed
+        # kinds (debug/module) below. Never invented; absent when ambiguous.
+        source_path, source_symbol = _derive_source_evidence(inp)
+
         # a) Discovered constraints
         for constraint_text in inp.discovered_constraints:
             candidates.append(CandidateCreate(
@@ -290,6 +330,8 @@ class ReflectionSkill:
                 importance=0.85,
                 evidence_content=None,   # outcome_summary IS the evidence here
                 evidence_source=None,
+                source_path=source_path,
+                source_symbol=source_symbol,
             ))
             reasoning.append(
                 f"Created incident candidate: bug fix completed and verified "
@@ -316,6 +358,8 @@ class ReflectionSkill:
                 importance=0.62,
                 evidence_content=None,
                 evidence_source=None,
+                source_path=source_path,
+                source_symbol=source_symbol,
             ))
             reasoning.append(
                 f"Created module candidate for structural work on "
@@ -369,6 +413,8 @@ class ReflectionSkill:
                 importance=0.62,
                 evidence_content=None,
                 evidence_source=None,
+                source_path=source_path,
+                source_symbol=source_symbol,
             ))
             reasoning.append(
                 f"Fallback module candidate: verified work on {len(inp.touched_files)} files "

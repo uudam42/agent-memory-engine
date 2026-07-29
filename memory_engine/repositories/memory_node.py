@@ -27,6 +27,7 @@ class MemoryNodeRepository:
         module_path: str | None = None,
         source_path: str | None = None,
         source_hash: str | None = None,
+        source_symbol: str | None = None,
     ) -> MemoryNodeORM:
         obj = MemoryNodeORM(
             project_id=project_id,
@@ -42,6 +43,7 @@ class MemoryNodeRepository:
             module_path=module_path,
             source_path=source_path,
             source_hash=source_hash,
+            source_symbol=source_symbol,
         )
         self._s.add(obj)
         self._s.commit()

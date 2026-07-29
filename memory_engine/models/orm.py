@@ -115,6 +115,8 @@ class MemoryNodeORM(Base):
     validity_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
     validity_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     previous_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Phase 15 follow-up (Task 8): optional symbol-level evidence, nullable.
+    source_symbol: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
@@ -208,5 +210,10 @@ class MemoryCandidateORM(Base):
     # Phase 11: candidate expiry
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expiry_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # Phase 15 follow-up (Task 2): optional source evidence propagated from
+    # ReflectionSkill through to promotion, nullable/additive.
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_symbol: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="candidates")

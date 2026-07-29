@@ -224,6 +224,9 @@ class MemoryNodeCreate(MemoryNodeBase):
     # Phase 15 (Issue 1): optional source evidence for automatic stale detection.
     source_path: str | None = None
     source_hash: str | None = None
+    # Phase 15 follow-up: optional symbol evidence (Task 8) — only set when the
+    # caller identified exactly one symbol inside the single source_path file.
+    source_symbol: str | None = None
 
 
 class MemoryNode(MemoryNodeBase):
@@ -254,6 +257,7 @@ class MemoryNode(MemoryNodeBase):
     validity_reason: str | None = None        # why current status was set by validity checks
     validity_checked_at: datetime | None = None
     previous_status: MemoryStatus | None = None  # audit trail for last automatic transition
+    source_symbol: str | None = None          # optional symbol-level evidence (Task 8)
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +464,13 @@ class CandidateCreate(BaseModel):
     importance: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
     evidence_content: str | None = None     # optional inline evidence to attach
     evidence_source: str | None = None
+    # Phase 15 follow-up (Task 2): optional project-relative source evidence,
+    # derived deterministically by ReflectionSkill when a single touched file
+    # (and optionally a single touched symbol) unambiguously identifies the
+    # candidate's origin. Left None when evidence is absent or spans multiple
+    # files with no single declared primary source — never guessed.
+    source_path: str | None = None
+    source_symbol: str | None = None
 
 
 class PersistedCandidate(CandidateCreate):

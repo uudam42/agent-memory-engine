@@ -65,6 +65,7 @@ class MemoryService:
             module_path=payload.module_path,
             source_path=payload.source_path,
             source_hash=payload.source_hash,
+            source_symbol=payload.source_symbol,
         )
         return MemoryNode.model_validate(orm)
 
