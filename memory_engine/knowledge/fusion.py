@@ -356,13 +356,14 @@ class UnifiedContextRetrievalService:
         validity = SourceValidityService()
         project_root = Path(self._project_root)
         changed_any = False
+        hash_cache: dict[str, str | None] = {}
 
         for mid in memory_ids:
             orm = repo.get_bare(mid)
             if orm is None or not orm.source_path:
                 continue
             node = MemoryNode.model_validate(orm)
-            result = validity.check(node, project_root)
+            result = validity.check(node, project_root, hash_cache=hash_cache)
             if not result.changed:
                 continue
             repo.set_validity(

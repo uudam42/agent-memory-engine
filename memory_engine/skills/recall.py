@@ -56,6 +56,19 @@ _GATE_STOP_WORDS = frozenset({
 # Minimum character length for a word to be considered a topic signal.
 _GATE_MIN_WORD_LEN = 4
 
+# Phase 3A review (A8): bound the number of source-backed nodes validated in
+# a single recall() call. Without this cap, a project with N source-backed
+# memories performs up to N file reads (existence + hash + optional
+# symbol/commit checks) on every cache-miss recall, regardless of the
+# requested token budget or how many of those memories would ever be
+# selected into the response — an unbounded-I/O pattern proportional to
+# total project memory count, not to the request. Nodes beyond the cap are
+# left unchecked for this call (no status change, no I/O) rather than
+# either scanning unconditionally or blocking retrieval; a later call (or
+# explicit revalidation) will still catch a status transition it missed.
+# This is a conservative minimal bound, not a full indexing subsystem.
+_MAX_VALIDITY_CHECKS_PER_RECALL = 50
+
 
 def _gate_words(text: str) -> frozenset[str]:
     """Extract meaningful words (length >= 4, not stop words) for gate check."""
@@ -218,10 +231,17 @@ class RecallService:
         # Transitions are persisted (auditable) and reflected in-memory so the
         # same recall call excludes newly-invalidated nodes immediately.
         if self._project_root is not None:
+            hash_cache: dict[str, str | None] = {}
+            checks_done = 0
             for node in nodes:
                 if not node.source_path:
                     continue
-                result = self._validity.check(node, self._project_root)
+                if checks_done >= _MAX_VALIDITY_CHECKS_PER_RECALL:
+                    break
+                checks_done += 1
+                result = self._validity.check(
+                    node, self._project_root, hash_cache=hash_cache
+                )
                 if not result.changed:
                     continue
                 updated = self._nodes.set_validity(

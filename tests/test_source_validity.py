@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -448,3 +449,53 @@ def test_legacy_sqlite_database_migrates_and_old_rows_stay_readable(tmp_path):
     finally:
         s.close()
         eng.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3A review (A8) — bounded I/O for source-validity checks in RecallService
+# ---------------------------------------------------------------------------
+
+
+def test_recall_bounds_source_validity_checks_per_call(session, project, tmp_path):
+    """A cold recall() call must not hash every source-backed memory in the
+    project unconditionally — that scales with total project memory count,
+    not with the token budget or the number of memories actually selected,
+    and is exactly the unbounded-I/O pattern the phase spec (Review A8)
+    prohibits. Create far more source-backed nodes than any reasonable
+    per-request cap and assert the number of underlying hash_file() calls
+    stays bounded regardless of how many qualify.
+    """
+    n_nodes = 200
+    for i in range(n_nodes):
+        rel_path = f"src/mod_{i}.py"
+        f = tmp_path / rel_path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        content = f"class Mod{i}: pass\n"
+        f.write_text(content)
+        MemoryService(session).create_node(MemoryNodeCreate(
+            project_id=project.id,
+            title=f"Mod{i} note",
+            summary=f"Module {i} does something.",
+            kind=MemoryKind.module,
+            status=MemoryStatus.active,
+            source_path=rel_path,
+            source_hash=_sha256(content),
+        ))
+
+    svc = RecallService(session, project_root=tmp_path)
+
+    with patch(
+        "memory_engine.services.source_validity.hash_file", wraps=hash_file
+    ) as spy:
+        svc.recall(RecallRequest(
+            project_id=project.id,
+            current_task="general project status",
+            token_budget=6000,
+        ))
+        call_count = spy.call_count
+
+    assert call_count < n_nodes, (
+        f"recall() performed {call_count} hash_file() reads for {n_nodes} "
+        "source-backed memories — validity checking is not bounded per "
+        "request (Phase 3A Review A8)."
+    )

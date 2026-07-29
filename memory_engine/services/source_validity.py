@@ -250,7 +250,23 @@ class SourceValidityService:
             self._commit_cache[key] = check_commit_reachable(project_root, commit)
         return self._commit_cache[key]
 
-    def check(self, node: MemoryNode, project_root: Path) -> ValidityCheck:
+    @staticmethod
+    def _hash_with_cache(
+        resolved: Path, hash_cache: dict[str, str | None] | None
+    ) -> str | None:
+        if hash_cache is None:
+            return hash_file(resolved)
+        key = str(resolved)
+        if key not in hash_cache:
+            hash_cache[key] = hash_file(resolved)
+        return hash_cache[key]
+
+    def check(
+        self,
+        node: MemoryNode,
+        project_root: Path,
+        hash_cache: dict[str, str | None] | None = None,
+    ) -> ValidityCheck:
         """Decide whether ``node`` should transition to a different status.
 
         Returns a no-op ValidityCheck (changed=False) when:
@@ -258,6 +274,14 @@ class SourceValidityService:
           - the node is already in a terminal status (superseded/archived);
           - the source file still exists and its hash/symbol/commit evidence
             (whichever is present) is unchanged or cannot be determined.
+
+        ``hash_cache`` (Phase 3A review A8): an optional caller-owned dict,
+        shared across every ``check()`` call within one recall/revalidation
+        request, that memoizes ``hash_file()`` by resolved path. Several
+        nodes can legitimately point at the same source file (e.g. a module
+        summary and a debug/incident note derived from the same edit); this
+        avoids re-reading and re-hashing that file once per node within a
+        single request. Never shared or persisted across requests.
         """
         if not node.source_path:
             return ValidityCheck(changed=False)
@@ -278,7 +302,7 @@ class SourceValidityService:
 
         # File exists. If we have a recorded hash, compare content drift.
         if node.source_hash:
-            current_hash = hash_file(resolved)
+            current_hash = self._hash_with_cache(resolved, hash_cache)
             if current_hash is not None and current_hash != node.source_hash:
                 if node.status != MemoryStatus.needs_revalidation:
                     return ValidityCheck(
