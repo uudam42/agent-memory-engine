@@ -134,6 +134,9 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
         task_intent: str = "unknown",
         preferred_layers: list[str] | None = None,
         proposition_types: list[str] | None = None,
+        # Phase 14: optional workspace isolation handshake
+        workspace_root: str | None = None,
+        repository_fingerprint: str | None = None,
     ) -> dict:  # type: ignore[type-arg]
         inp = RetrieveContextInput(
             task=task,
@@ -145,6 +148,8 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
             task_intent=task_intent,
             preferred_layers=preferred_layers or [],
             proposition_types=proposition_types,
+            workspace_root=workspace_root,
+            repository_fingerprint=repository_fingerprint,
         )
         return tool_retrieve_agent_context(ctx, inp)
 
@@ -217,6 +222,9 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
         current_branch: str | None = None,
         head_commit: str | None = None,
         task_intent: str | None = None,
+        # Phase 14: optional workspace isolation handshake
+        workspace_root: str | None = None,
+        repository_fingerprint: str | None = None,
     ) -> dict:  # type: ignore[type-arg]
         inp = ReflectAndWriteInput(
             task=task,
@@ -228,6 +236,8 @@ def create_mcp_server(project_root: Path) -> FastMCP:  # type: ignore[return]
             current_branch=current_branch,
             head_commit=head_commit,
             task_intent=task_intent,
+            workspace_root=workspace_root,
+            repository_fingerprint=repository_fingerprint,
         )
         return tool_reflect_and_write(ctx, inp)
 

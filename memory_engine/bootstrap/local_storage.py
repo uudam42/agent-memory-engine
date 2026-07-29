@@ -27,6 +27,9 @@ Rules:
 
 from __future__ import annotations
 
+import hashlib
+import json
+import subprocess
 from pathlib import Path
 
 
@@ -160,36 +163,171 @@ class ProjectLocalStorage:
         """File that records the canonical project root path on first bind."""
         return self.storage_dir / "project.fingerprint"
 
+    # ------------------------------------------------------------------
+    # Phase 14: robust multi-field fingerprint
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_remote_url(url: str) -> str:
+        """Normalize git remote URL to a canonical form.
+
+        Maps equivalent SSH and HTTPS remotes to the same string so that
+        switching from SSH to HTTPS does not change the fingerprint.
+
+        Examples:
+          git@github.com:owner/repo.git  → github.com/owner/repo
+          https://github.com/owner/repo.git → github.com/owner/repo
+        """
+        import re
+        # SSH: git@host:path[.git]
+        m = re.match(r'^git@([^:]+):(.+?)(?:\.git)?$', url.strip())
+        if m:
+            return f"{m.group(1)}/{m.group(2)}"
+        # HTTPS: https://host/path[.git]
+        m = re.match(r'^https?://([^/]+)/(.+?)(?:\.git)?$', url.strip())
+        if m:
+            return f"{m.group(1)}/{m.group(2)}"
+        # Fallback: use as-is (strip trailing .git)
+        return re.sub(r'\.git$', '', url.strip())
+
+    @staticmethod
+    def _get_git_remote_hash(project_root: Path) -> str | None:
+        """Run git remote get-url origin, normalize, and return sha256 hex.
+
+        Returns None if git is unavailable or no remote is configured.
+        The raw URL is never stored — only its hash is retained.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return None
+            normalized = ProjectLocalStorage._normalize_remote_url(result.stdout.strip())
+            return hashlib.sha256(normalized.encode()).hexdigest()[:32]
+        except Exception:
+            return None
+
+    @staticmethod
+    def _get_git_common_dir(project_root: Path) -> str | None:
+        """Return the git common directory (handles worktrees correctly)."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-common-dir"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                common = Path(result.stdout.strip()).resolve()
+                return str(common)
+        except Exception:
+            pass
+        return None
+
+    def _build_fingerprint(self) -> dict:
+        """Build the fingerprint payload for this project root.
+
+        Returns a dict with:
+          version: int (1)
+          canonical_path: str  — resolved absolute path
+          remote_url_hash: str | None  — sha256 of normalized remote URL (no raw URL)
+          git_common_dir: str | None  — resolved git common dir (worktree-aware)
+          path_hash: str  — sha256 of canonical_path
+        """
+        canonical = str(self.project_root)
+        remote_hash = self._get_git_remote_hash(self.project_root)
+        common_dir = self._get_git_common_dir(self.project_root)
+        return {
+            "version": 1,
+            "canonical_path": canonical,
+            "remote_url_hash": remote_hash,
+            "git_common_dir": common_dir,
+            "path_hash": hashlib.sha256(canonical.encode()).hexdigest()[:32],
+        }
+
+    def _load_stored_fingerprint(self) -> dict | None:
+        """Read and parse the stored fingerprint file.
+
+        Handles both legacy format (plain canonical path) and v1 JSON format.
+        Returns None if the file does not exist.
+        """
+        if not self.fingerprint_path.exists():
+            return None
+        raw = self.fingerprint_path.read_text(encoding="utf-8").strip()
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Legacy v0: plain canonical path
+        return {"version": 0, "canonical_path": raw}
+
     def bind_fingerprint(self) -> None:
-        """Write the canonical project root path as the fingerprint.
+        """Write or verify the project fingerprint.
 
         Called on first initialization. Idempotent if the fingerprint already
         matches; raises ProjectRootMismatchError if it conflicts.
         """
-        canonical = str(self.project_root)
         if self.fingerprint_path.exists():
             self.verify_project_fingerprint()
         else:
-            self.fingerprint_path.write_text(canonical, encoding="utf-8")
+            fp = self._build_fingerprint()
+            self.fingerprint_path.write_text(
+                json.dumps(fp, indent=2), encoding="utf-8"
+            )
 
     def verify_project_fingerprint(self) -> None:
         """Raise ProjectRootMismatchError if the stored fingerprint does not
         match the current project root.
 
-        This prevents a copied .memory-engine/ from silently inheriting
-        another project's memories.  No-ops if no fingerprint exists yet
-        (pre-fingerprint databases are treated as unbound).
+        Matching rules (all must pass when present):
+          1. canonical_path must match (always checked)
+          2. git_common_dir must match if both stored and current are non-None
+             (this catches copies between repositories sharing no git history)
+
+        remote_url_hash is intentionally NOT used as a blocking condition because
+        a cloned copy of the same remote is a legitimate database migration path.
+        It can be used by callers for advisory comparison.
+
+        No-ops if no fingerprint exists yet (pre-fingerprint databases are unbound).
         """
-        if not self.fingerprint_path.exists():
-            return  # unbound — skip check; bind_fingerprint() will write it
-        stored = self.fingerprint_path.read_text(encoding="utf-8").strip()
-        current = str(self.project_root)
-        if stored != current:
+        stored = self._load_stored_fingerprint()
+        if stored is None:
+            return  # unbound — bind_fingerprint() will write it
+
+        current_path = str(self.project_root)
+        stored_path = stored.get("canonical_path", "")
+
+        if stored_path and stored_path != current_path:
             raise ProjectRootMismatchError(
                 f"Memory Engine refuses to open: .memory-engine/ was created for "
-                f"'{stored}' but is being accessed from '{current}'. "
+                f"'{stored_path}' but is being accessed from '{current_path}'. "
                 "Delete .memory-engine/ or re-run 'memory init' in this directory."
             )
+
+        # Additional check: git common directory (catches copy-to-different-worktree-root)
+        if stored.get("version", 0) >= 1:
+            stored_common = stored.get("git_common_dir")
+            current_common = self._get_git_common_dir(self.project_root)
+            if stored_common and current_common and stored_common != current_common:
+                raise ProjectRootMismatchError(
+                    f"Memory Engine refuses to open: .memory-engine/ git common directory "
+                    f"'{stored_common}' does not match current '{current_common}'. "
+                    "This database appears to belong to a different repository."
+                )
+
+    def get_fingerprint_dict(self) -> dict | None:
+        """Return the stored fingerprint as a dict, or None if not yet bound."""
+        return self._load_stored_fingerprint()
 
     def is_initialized(self) -> bool:
         """Return True if the storage directory exists and has a DB."""

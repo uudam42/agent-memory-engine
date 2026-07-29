@@ -126,6 +126,8 @@ class UnifiedContextRetrievalService:
             current_branch=req.current_branch,
             head_commit=req.head_commit,
             working_tree_dirty=bool(req.modified_files),
+            # Phase 14: memory generation — forces cache miss after reflect_and_write
+            memory_generation=req.memory_generation,
         )
         cached = self._cache.get(cache_key)
         if cached is not None:

@@ -16,6 +16,8 @@ Tools:
 
 from __future__ import annotations
 
+import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,7 @@ from memory_engine.bootstrap.security import PathEscapeError, resolve_safe
 from memory_engine.bootstrap.vector_fallback import degraded_response_metadata
 from memory_engine.knowledge.fusion import UnifiedContextRetrievalService
 from memory_engine.knowledge.search import KnowledgeSearchService
+from memory_engine.mcp.errors import MCPWorkspaceMismatchError
 from memory_engine.mcp.project_context import ProjectContext
 from memory_engine.mcp.schemas import (
     InspectKnowledgeInput,
@@ -37,6 +40,8 @@ from memory_engine.mcp.schemas import (
     SeedProjectInput,
     SeedProjectOutput,
 )
+
+_LOG = logging.getLogger(__name__)
 from memory_engine.models.domain import (
     ReflectionInput,
     TaskIntent,
@@ -52,6 +57,129 @@ from memory_engine.skills.recall import RecallService
 
 
 # ---------------------------------------------------------------------------
+# Phase 14: workspace isolation helpers
+# ---------------------------------------------------------------------------
+
+_STRICT_WORKSPACE_ENV = "MEMORY_ENGINE_STRICT_WORKSPACE"
+
+
+def _validate_workspace(
+    ctx: ProjectContext,
+    workspace_root: str | None,
+    repository_fingerprint: str | None,
+) -> dict[str, Any] | None:
+    """Validate caller-provided workspace context against the server's project.
+
+    Returns None when validation passes.
+    Returns a structured error dict when validation fails (caller must surface it).
+
+    In compatibility mode (default): missing workspace context produces a warning
+    but does not block the request.
+    In strict mode (MEMORY_ENGINE_STRICT_WORKSPACE=1): missing workspace context
+    blocks the request with PROJECT_CONTEXT_UNVERIFIABLE.
+
+    Rules:
+    - workspace_root, when provided, must resolve to ctx.project_root.
+    - repository_fingerprint, when provided, must match the stored fingerprint.
+    - No memory content is included in error responses.
+    """
+    strict_mode = os.environ.get(_STRICT_WORKSPACE_ENV, "0").strip() in ("1", "true", "yes")
+
+    if workspace_root is None and repository_fingerprint is None:
+        if strict_mode:
+            return {
+                "error": True,
+                "error_code": "PROJECT_CONTEXT_UNVERIFIABLE",
+                "error_detail": (
+                    "Strict workspace isolation is enabled "
+                    f"({_STRICT_WORKSPACE_ENV}=1). "
+                    "The caller must supply workspace_root to confirm it is sending "
+                    "this request to the correct Memory Engine server. "
+                    "Set workspace_root=<absolute path to your project> in the tool call."
+                ),
+                "workspace_validation": "failed",
+                "server_project": str(ctx.project_root),
+            }
+        # Compatibility mode: warn but allow
+        _LOG.warning(
+            "[workspace-isolation] No workspace_root provided. "
+            "Cannot confirm request originates from project '%s'. "
+            "Set MEMORY_ENGINE_STRICT_WORKSPACE=1 to require workspace validation.",
+            ctx.project_root,
+        )
+        return None  # allowed with warning
+
+    # Validate workspace_root if provided
+    if workspace_root is not None:
+        try:
+            caller_root = Path(workspace_root).resolve()
+        except (TypeError, ValueError) as exc:
+            return {
+                "error": True,
+                "error_code": "PROJECT_CONTEXT_MISMATCH",
+                "error_detail": f"workspace_root is not a valid path: {exc}",
+                "workspace_validation": "failed",
+            }
+        server_root = ctx.project_root  # already resolved in ProjectContext.__init__
+        if caller_root != server_root:
+            return {
+                "error": True,
+                "error_code": "PROJECT_CONTEXT_MISMATCH",
+                "error_detail": (
+                    "The caller's workspace_root does not match this MCP server's "
+                    "configured project root. This server is bound to a different project. "
+                    "Ensure you are connecting to the Memory Engine server for your project."
+                ),
+                "workspace_validation": "failed",
+                "server_project": str(server_root),
+                # Note: do NOT include caller_root or any memory content in the response
+                # to avoid cross-project information leakage.
+            }
+
+    # Validate repository_fingerprint if provided
+    if repository_fingerprint is not None:
+        stored = None
+        if ctx.storage.fingerprint_path.exists():
+            try:
+                import json as _json
+                raw = ctx.storage.fingerprint_path.read_text(encoding="utf-8").strip()
+                try:
+                    fp_data = _json.loads(raw)
+                    stored = fp_data.get("fingerprint_hash") or fp_data.get("canonical_path")
+                except (_json.JSONDecodeError, AttributeError):
+                    stored = raw  # legacy plain-text format
+            except Exception:
+                stored = None
+
+        if stored and stored != repository_fingerprint:
+            # Check if caller sent the canonical path (v0 format) or a hash (v1 format)
+            # For a path match: compare against stored canonical path
+            try:
+                import json as _json
+                raw = ctx.storage.fingerprint_path.read_text(encoding="utf-8").strip()
+                fp_data = _json.loads(raw) if raw.startswith("{") else None
+                canonical = fp_data.get("canonical_path") if fp_data else raw
+                if repository_fingerprint != canonical:
+                    return {
+                        "error": True,
+                        "error_code": "REPOSITORY_FINGERPRINT_MISMATCH",
+                        "error_detail": (
+                            "The repository_fingerprint provided by the caller does not match "
+                            "the fingerprint stored for this project. "
+                            "This may indicate a copied or mismatched .memory-engine directory."
+                        ),
+                        "workspace_validation": "failed",
+                    }
+            except Exception:
+                pass  # If we cannot read the fingerprint, allow (fail-open on fingerprint only)
+
+    _LOG.debug(
+        "[workspace-isolation] Workspace validated for project '%s'.", ctx.project_root
+    )
+    return None  # validation passed
+
+
+# ---------------------------------------------------------------------------
 # 1. retrieve_agent_context
 # ---------------------------------------------------------------------------
 
@@ -61,6 +189,11 @@ def tool_retrieve_agent_context(
     inp: RetrieveContextInput,
 ) -> dict[str, Any]:
     """Retrieve smallest relevant memory + knowledge before non-trivial work."""
+    # Phase 14: workspace validation BEFORE any memory access
+    ws_error = _validate_workspace(ctx, inp.workspace_root, inp.repository_fingerprint)
+    if ws_error is not None:
+        return ws_error
+
     bootstrap_report = ctx.ensure_bootstrapped()
     mode_info = ctx.get_mode_info()
 
@@ -88,6 +221,10 @@ def tool_retrieve_agent_context(
     )
     modified_files = list(git_ctx.modified_files) + list(git_ctx.staged_files)
 
+    # Phase 14: read current memory generation so the cache invalidates after writes
+    state_mgr = ctx.get_state_manager()
+    current_memory_generation = state_mgr.load().memory_revision
+
     session = ctx.get_session()
     try:
         svc = UnifiedContextRetrievalService(
@@ -109,6 +246,8 @@ def tool_retrieve_agent_context(
             task_intent=inp.task_intent,
             preferred_layers=inp.preferred_layers,
             proposition_types=inp.proposition_types,
+            # Phase 14: ensures cache misses after memory writes
+            memory_generation=current_memory_generation,
         ))
 
         meta = RetrievalMeta(
@@ -259,6 +398,11 @@ def tool_reflect_and_write(
     inp: ReflectAndWriteInput,
 ) -> dict[str, Any]:
     """Report completed work to the post-task reflection pipeline."""
+    # Phase 14: workspace validation BEFORE any memory write
+    ws_error = _validate_workspace(ctx, inp.workspace_root, inp.repository_fingerprint)
+    if ws_error is not None:
+        return ws_error
+
     bootstrap_report = ctx.ensure_bootstrapped()
     mode_info = ctx.get_mode_info()
 
