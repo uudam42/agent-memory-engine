@@ -109,6 +109,13 @@ class MemoryNodeORM(Base):
     last_retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retrieval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # Phase 15: source-validity lifecycle (Issue 1) — nullable, backward compatible.
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    validity_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    validity_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
         "MemoryNodeORM", remote_side="MemoryNodeORM.id", back_populates="children"

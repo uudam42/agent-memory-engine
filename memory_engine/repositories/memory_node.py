@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session, selectinload
 
-from memory_engine.models.orm import MemoryNodeORM
+from memory_engine.models.orm import MemoryNodeORM, _now
 
 
 class MemoryNodeRepository:
@@ -25,6 +25,8 @@ class MemoryNodeRepository:
         confidence: float = 1.0,
         importance: float = 0.5,
         module_path: str | None = None,
+        source_path: str | None = None,
+        source_hash: str | None = None,
     ) -> MemoryNodeORM:
         obj = MemoryNodeORM(
             project_id=project_id,
@@ -38,6 +40,8 @@ class MemoryNodeRepository:
             confidence=confidence,
             importance=importance,
             module_path=module_path,
+            source_path=source_path,
+            source_hash=source_hash,
         )
         self._s.add(obj)
         self._s.commit()
@@ -64,6 +68,35 @@ class MemoryNodeRepository:
             .order_by(MemoryNodeORM.depth, MemoryNodeORM.created_at)
             .all()
         )
+
+    def set_validity(
+        self,
+        node_id: str,
+        *,
+        new_status: str,
+        reason: str,
+        new_source_hash: str | None = None,
+        actor: str = "source_validity_service",
+    ) -> MemoryNodeORM | None:
+        """Auditable lifecycle transition applied by SourceValidityService.
+
+        Records previous_status before overwriting status, so the transition
+        is reconstructable later (Issue 1 revalidation-audit requirement).
+        Does not delete or otherwise touch the node's content.
+        """
+        obj = self._s.get(MemoryNodeORM, node_id)
+        if obj is None:
+            return None
+        obj.previous_status = obj.status
+        obj.status = new_status
+        obj.validity_reason = f"[{actor}] {reason}"
+        obj.validity_checked_at = _now()
+        if new_source_hash is not None:
+            obj.source_hash = new_source_hash
+        self._s.add(obj)
+        self._s.commit()
+        self._s.refresh(obj)
+        return obj
 
     def list_active_by_project(self, project_id: str) -> list[MemoryNodeORM]:
         return (

@@ -110,9 +110,16 @@ def _fill_bucket(
         tree_path = _node_tree_path(node)
         node_status = node.status.value if hasattr(node.status, "value") else str(node.status)
 
-        # Exclude stale / superseded by default
+        # Exclude stale / superseded / invalidated / needs-revalidation by default.
+        # Phase 15 (Issue 1): needs_revalidation and invalidated are non-authoritative
+        # source-validity states — treated the same as stale for active-context purposes,
+        # but distinguishable in the trace reason below (node.status.value).
         if not include_stale and node.status in (
-            MemoryStatus.stale, MemoryStatus.superseded, MemoryStatus.archived
+            MemoryStatus.stale,
+            MemoryStatus.superseded,
+            MemoryStatus.archived,
+            MemoryStatus.needs_revalidation,
+            MemoryStatus.invalidated,
         ):
             trace.append(TraceEntry(
                 memory_id=str(node.id),

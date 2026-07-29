@@ -18,6 +18,7 @@ Never calls an external API or LLM.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from sqlalchemy.orm import Session
 
 from memory_engine.models.domain import (
@@ -34,6 +35,7 @@ from memory_engine.models.domain import (
 from memory_engine.repositories.memory_node import MemoryNodeRepository
 from memory_engine.repositories.project import ProjectRepository
 from memory_engine.services.memory_service import ProjectNotFoundError
+from memory_engine.services.source_validity import SourceValidityService
 from memory_engine.skills.composer import ContextComposer
 from memory_engine.skills.query_analyzer import DeterministicQueryAnalyzer, QueryAnalyzerProtocol
 from memory_engine.skills.ranker import DeterministicRanker
@@ -123,6 +125,8 @@ class RecallService:
         self,
         session: Session,
         query_analyzer: QueryAnalyzerProtocol | None = None,
+        project_root: str | Path | None = None,
+        validity_service: SourceValidityService | None = None,
     ) -> None:
         self._nodes = MemoryNodeRepository(session)
         self._projects = ProjectRepository(session)
@@ -133,6 +137,12 @@ class RecallService:
         self._query_analyzer: QueryAnalyzerProtocol = (
             query_analyzer or DeterministicQueryAnalyzer()
         )
+        # Phase 15 (Issue 1): when project_root is supplied, source-backed
+        # candidates are lazily validated before ranking. Defaults to None,
+        # which fully preserves pre-Phase-15 behavior (no filesystem access,
+        # no validity transitions) for every caller that doesn't opt in.
+        self._project_root: Path | None = Path(project_root) if project_root else None
+        self._validity: SourceValidityService = validity_service or SourceValidityService()
 
     def recall(self, request: RecallRequest) -> RecallResult:
         """Primary entry point — autonomous memory recall for an agent task.
@@ -193,6 +203,29 @@ class RecallService:
         # The composer's _fill_bucket() gates on status per bucket.
         orm_nodes = self._nodes.list_by_project(str(request.project_id))
         nodes: list[MemoryNode] = [MemoryNode.model_validate(o) for o in orm_nodes]
+
+        # -- Phase 15 (Issue 1): lazy source-validity check ------------------
+        # Only runs when a project_root was supplied at construction time, and
+        # only touches nodes that carry explicit source_path evidence — bounded
+        # to the already-loaded candidate list, no repository-wide scan.
+        # Transitions are persisted (auditable) and reflected in-memory so the
+        # same recall call excludes newly-invalidated nodes immediately.
+        if self._project_root is not None:
+            for node in nodes:
+                if not node.source_path:
+                    continue
+                result = self._validity.check(node, self._project_root)
+                if not result.changed:
+                    continue
+                updated = self._nodes.set_validity(
+                    str(node.id),
+                    new_status=result.new_status.value,
+                    reason=result.reason or "",
+                )
+                if updated is not None:
+                    node.status = result.new_status
+                    node.previous_status = MemoryNode.model_validate(updated).previous_status
+                    node.validity_reason = result.reason
 
         # -- Score all nodes (use QueryAnalysis to enrich file/symbol signals) --
         # Merge: explicit request signals + QueryAnalyzer inferences

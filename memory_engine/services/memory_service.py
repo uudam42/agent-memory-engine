@@ -63,6 +63,8 @@ class MemoryService:
             confidence=payload.confidence,
             importance=payload.importance,
             module_path=payload.module_path,
+            source_path=payload.source_path,
+            source_hash=payload.source_hash,
         )
         return MemoryNode.model_validate(orm)
 

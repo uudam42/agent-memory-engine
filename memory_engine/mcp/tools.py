@@ -232,6 +232,7 @@ def tool_retrieve_agent_context(
             vector_index=ctx.get_vector_index(),
             cache=ctx.get_cache(),
             semantic_index=ctx.get_semantic_index(),
+            project_root=str(ctx.project_root),
         )
         pack = svc.retrieve(UnifiedRetrievalRequest(
             project_id=uuid.UUID(ctx.get_project_id()),

@@ -86,6 +86,9 @@ class MemoryStatus(StrEnum):
     superseded = "superseded"
     archived = "archived"
     needs_review = "needs_review"   # Phase 3: unresolved conflict — human required
+    # Phase 15: source-validity lifecycle (Issue 1)
+    needs_revalidation = "needs_revalidation"  # source evidence changed — non-authoritative
+    invalidated = "invalidated"                 # source evidence gone/broken — retained for audit
 
 
 class TaskIntent(StrEnum):
@@ -218,6 +221,9 @@ class MemoryNodeCreate(MemoryNodeBase):
     confidence: Annotated[float, Field(ge=0.0, le=1.0)] = 1.0
     importance: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
     module_path: str | None = None
+    # Phase 15 (Issue 1): optional source evidence for automatic stale detection.
+    source_path: str | None = None
+    source_hash: str | None = None
 
 
 class MemoryNode(MemoryNodeBase):
@@ -242,6 +248,12 @@ class MemoryNode(MemoryNodeBase):
     source_revision: str | None = None
     branch_promotion_eligible: bool = False
     source_path: str | None = None     # file path from evidence/source context
+
+    # Phase 15: source-validity lifecycle (Issue 1) — nullable, backward compatible.
+    source_hash: str | None = None            # sha256 of source file content at write time
+    validity_reason: str | None = None        # why current status was set by validity checks
+    validity_checked_at: datetime | None = None
+    previous_status: MemoryStatus | None = None  # audit trail for last automatic transition
 
 
 # ---------------------------------------------------------------------------

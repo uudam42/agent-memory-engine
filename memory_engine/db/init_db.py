@@ -12,6 +12,11 @@ Phase 11 addition:
   Retention columns: memory_nodes.(archived_at, archived_reason,
   compacted_into_id, last_retrieved_at, retrieval_count) and
   memory_candidates.(expires_at, expiry_reason).
+
+Phase 15 addition (Issue 1 — automatic stale-memory detection):
+  memory_nodes.(source_path, source_hash, validity_reason,
+  validity_checked_at, previous_status). All nullable — legacy nodes with
+  no source_path are never touched by SourceValidityService.
 """
 
 from sqlalchemy import text
@@ -64,6 +69,12 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("memory_nodes", "retrieval_count", "INTEGER DEFAULT 0"),
     ("memory_candidates", "expires_at", "DATETIME"),
     ("memory_candidates", "expiry_reason", "VARCHAR(512)"),
+    # Phase 15: source-validity lifecycle columns (Issue 1)
+    ("memory_nodes", "source_path", "VARCHAR(1024)"),
+    ("memory_nodes", "source_hash", "VARCHAR(64)"),
+    ("memory_nodes", "validity_reason", "VARCHAR(512)"),
+    ("memory_nodes", "validity_checked_at", "DATETIME"),
+    ("memory_nodes", "previous_status", "VARCHAR(32)"),
 ]
 
 

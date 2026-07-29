@@ -99,10 +99,12 @@ class UnifiedContextRetrievalService:
         vector_index: KnowledgeVectorIndex | None = None,
         cache: SimpleCache | None = None,
         semantic_index=None,  # type: ignore[no-untyped-def]  # Phase 13: SqliteVecIndex | None
+        project_root: str | None = None,  # Phase 15: enables source-validity checks
     ) -> None:
         self._session = session
         self._vector_index: KnowledgeVectorIndex = vector_index or get_shared_vector_index()
         self._cache: _Cache = cache or get_global_cache()
+        self._project_root = project_root
         # Phase 13: persistent semantic backend, threaded into knowledge search.
         self._semantic_index = semantic_index
 
@@ -141,7 +143,7 @@ class UnifiedContextRetrievalService:
         memory_budget = int(req.token_budget * _MEMORY_BUDGET_RATIO)
         knowledge_budget = req.token_budget - memory_budget
 
-        recall_svc = RecallService(self._session)
+        recall_svc = RecallService(self._session, project_root=self._project_root)
         recall_req = RecallRequest(
             project_id=req.project_id,
             current_task=req.task,
