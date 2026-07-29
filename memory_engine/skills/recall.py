@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Callable
+
 from sqlalchemy.orm import Session
 
 from memory_engine.models.domain import (
@@ -127,6 +129,7 @@ class RecallService:
         query_analyzer: QueryAnalyzerProtocol | None = None,
         project_root: str | Path | None = None,
         validity_service: SourceValidityService | None = None,
+        revision_hook: Callable[[], None] | None = None,
     ) -> None:
         self._nodes = MemoryNodeRepository(session)
         self._projects = ProjectRepository(session)
@@ -143,6 +146,10 @@ class RecallService:
         # no validity transitions) for every caller that doesn't opt in.
         self._project_root: Path | None = Path(project_root) if project_root else None
         self._validity: SourceValidityService = validity_service or SourceValidityService()
+        # Task 5: optional callback fired exactly once per persisted validity
+        # transition (never on a no-op check), so the caller can bump a
+        # generation/revision counter that participates in cache keys.
+        self._revision_hook: Callable[[], None] | None = revision_hook
 
     def recall(self, request: RecallRequest) -> RecallResult:
         """Primary entry point — autonomous memory recall for an agent task.
@@ -226,6 +233,8 @@ class RecallService:
                     node.status = result.new_status
                     node.previous_status = MemoryNode.model_validate(updated).previous_status
                     node.validity_reason = result.reason
+                    if self._revision_hook is not None:
+                        self._revision_hook()
 
         # -- Score all nodes (use QueryAnalysis to enrich file/symbol signals) --
         # Merge: explicit request signals + QueryAnalyzer inferences
