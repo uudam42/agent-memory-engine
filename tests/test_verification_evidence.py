@@ -606,3 +606,81 @@ def test_no_op_transition_is_not_recorded(session, project):
         reason="No real change.",
     )
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Task 9 (integration review) — head_commit is never threaded from
+# RecallRequest into build_provenance()/effective_evidence_level(), so the
+# commit-based staleness downgrade proven by
+# test_evidence_tied_to_old_commit_is_downgraded_when_head_moves above (which
+# calls effective_evidence_level() directly) never actually fires during a
+# real recall()/retrieve() call — current_branch is threaded end-to-end but
+# current_commit is not. This reproduces the gap at the composer/build_
+# provenance layer (the actual conversion point RecallService relies on) and
+# at the full RecallService.recall() layer (the real production path).
+# ---------------------------------------------------------------------------
+
+
+def test_build_provenance_downgrades_verification_on_commit_drift(session, project):
+    """build_provenance() must accept and honor a current_commit parameter,
+    mirroring its existing current_branch parameter, so a memory verified
+    against a commit HEAD has since moved past is displayed as
+    agent_claimed rather than stale human_confirmed/external_observed."""
+    from memory_engine.skills.composer import build_provenance
+
+    evidence = VerificationEvidence(
+        target="pytest tests/", exit_code=0, source_commit="aaaaaaa"
+    )
+    node = MemoryService(session).create_node(MemoryNodeCreate(
+        project_id=project.id,
+        title="Commit-bound verification (provenance)",
+        summary="Verified against a commit that HEAD has since moved past.",
+        kind=MemoryKind.debug,
+        evidence_level=VerificationEvidenceLevel.human_confirmed.value,
+        verification_evidence=evidence,
+    ))
+
+    same_commit_prov = build_provenance(node, current_commit="aaaaaaa")
+    assert same_commit_prov.verification_level == "human-confirmed"
+
+    moved_commit_prov = build_provenance(node, current_commit="bbbbbbb")
+    assert moved_commit_prov.verification_level == "agent-claimed", (
+        "build_provenance() did not downgrade verification_level on commit "
+        "drift — current_commit is not being forwarded to "
+        "effective_evidence_level()."
+    )
+
+
+def test_recall_request_threads_current_commit_to_provenance(session, project):
+    """End-to-end: RecallRequest must expose a current_commit field that
+    RecallService.recall() forwards all the way to each trace entry's
+    CompactProvenance, exactly like the existing current_branch field."""
+    from memory_engine.models.domain import RecallRequest
+    from memory_engine.skills.recall import RecallService
+
+    evidence = VerificationEvidence(
+        target="pytest tests/", exit_code=0, source_commit="aaaaaaa"
+    )
+    node = MemoryService(session).create_node(MemoryNodeCreate(
+        project_id=project.id,
+        title="Commit-bound verification (recall)",
+        summary="Verified against a commit that HEAD has since moved past.",
+        kind=MemoryKind.debug,
+        evidence_level=VerificationEvidenceLevel.human_confirmed.value,
+        verification_evidence=evidence,
+    ))
+
+    svc = RecallService(session)
+    req = RecallRequest(
+        project_id=project.id,
+        current_task="Commit-bound verification recall",
+        current_commit="bbbbbbb",
+        token_budget=6000,
+    )
+    result = svc.recall(req)
+    entry = next(t for t in result.retrieval_trace if t.memory_id == str(node.id))
+    assert entry.provenance is not None
+    assert entry.provenance.verification_level == "agent-claimed", (
+        "RecallRequest.current_commit was not threaded through to "
+        "CompactProvenance.verification_level."
+    )

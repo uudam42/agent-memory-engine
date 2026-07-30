@@ -175,6 +175,12 @@ class UnifiedContextRetrievalService:
             current_symbols=req.current_symbols,
             token_budget=memory_budget,
             current_branch=req.current_branch,
+            # Task 9 (integration review): UnifiedRetrievalRequest already
+            # carried head_commit (used in the cache key above) but never
+            # forwarded it into RecallRequest, so verification-evidence
+            # commit-based staleness downgrade never fired during a real
+            # retrieve() call even though current_branch was threaded.
+            current_commit=req.head_commit,
         )
         recall_result = recall_svc.recall(recall_req)
         memory_pack = recall_result.context_pack

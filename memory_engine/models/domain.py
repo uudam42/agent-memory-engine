@@ -618,6 +618,12 @@ class RecallRequest(BaseModel):
     token_budget: int | None = None
     routing_plan: RoutingPlan | None = None
     current_branch: str | None = None
+    # Task 9 (integration review): mirrors current_branch's threading so
+    # verification_evidence.effective_evidence_level()'s commit-based
+    # staleness downgrade (already implemented and unit-tested) can actually
+    # fire during a real recall() call. None for every existing caller —
+    # fully additive and backward-compatible.
+    current_commit: str | None = None
 
 
 class ConflictResolutionStatus(StrEnum):

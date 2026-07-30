@@ -345,6 +345,7 @@ class RecallService:
             include_evidence=expand_evidence,
             token_budget=budget,
             current_branch=request.current_branch,
+            current_commit=request.current_commit,
         )
 
         # -- Issue 5: explicit conflict detection -----------------------------
@@ -404,7 +405,9 @@ class RecallService:
                 status=s.node.status.value,
                 tree_path=tree_path,
                 provenance=build_provenance(
-                    s.node, s.score_breakdown, current_branch=request.current_branch
+                    s.node, s.score_breakdown,
+                    current_branch=request.current_branch,
+                    current_commit=request.current_commit,
                 ),
             ))
 

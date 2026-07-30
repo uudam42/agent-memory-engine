@@ -138,6 +138,7 @@ def build_provenance(
     breakdown: dict[str, float] | None = None,
     *,
     current_branch: str | None = None,
+    current_commit: str | None = None,
 ) -> CompactProvenance:
     """Issue 6 — compact provenance summary for ``node``.
 
@@ -162,7 +163,10 @@ def build_provenance(
 
     trust_label = TRUST_LABELS.get(effective_trust(node).value, "unknown")
     verification_label = VERIFICATION_LABELS.get(
-        effective_evidence_level(node, current_branch=current_branch).value, "unverified"
+        effective_evidence_level(
+            node, current_branch=current_branch, current_commit=current_commit
+        ).value,
+        "unverified",
     )
 
     authority: str | None = None
@@ -194,6 +198,7 @@ def _fill_bucket(
     min_importance: float = 0.0,
     include_stale: bool = False,
     current_branch: str | None = None,
+    current_commit: str | None = None,
 ) -> tuple[list[MemoryNode], list[TraceEntry]]:
     """Greedily fill a bucket until budget exhausted, tracking trace entries."""
     selected: list[MemoryNode] = []
@@ -207,7 +212,9 @@ def _fill_bucket(
         node_status = node.status.value if hasattr(node.status, "value") else str(node.status)
         # Issue 6: built once per candidate from already-loaded node fields —
         # no new I/O, no re-derivation of Issues 1-5's eligibility decisions.
-        prov = build_provenance(node, breakdown, current_branch=current_branch)
+        prov = build_provenance(
+            node, breakdown, current_branch=current_branch, current_commit=current_commit
+        )
 
         # Exclude stale / superseded / invalidated / needs-revalidation by default.
         # Phase 15 (Issue 1): needs_revalidation and invalidated are non-authoritative
@@ -326,6 +333,7 @@ class ContextComposer:
         include_evidence: bool = False,
         token_budget: int | None = None,
         current_branch: str | None = None,
+        current_commit: str | None = None,
     ) -> tuple[EnrichedContextPack, list[TraceEntry]]:
         """Build a structured ContextPack, returning it with the full trace."""
 
@@ -365,13 +373,22 @@ class ContextComposer:
         )
 
         # Fill each bucket
-        constraints, t1 = _fill_bucket(constraints_scored, b_constraints, current_branch=current_branch)
+        constraints, t1 = _fill_bucket(
+            constraints_scored, b_constraints,
+            current_branch=current_branch, current_commit=current_commit,
+        )
         all_trace.extend(t1)
 
-        architecture, t2 = _fill_bucket(arch_scored, b_arch, current_branch=current_branch)
+        architecture, t2 = _fill_bucket(
+            arch_scored, b_arch,
+            current_branch=current_branch, current_commit=current_commit,
+        )
         all_trace.extend(t2)
 
-        modules, t3 = _fill_bucket(module_scored, b_modules, current_branch=current_branch)
+        modules, t3 = _fill_bucket(
+            module_scored, b_modules,
+            current_branch=current_branch, current_commit=current_commit,
+        )
         all_trace.extend(t3)
 
         dec_inc_nodes, t4 = _fill_bucket(
@@ -379,6 +396,7 @@ class ContextComposer:
             b_dec_inc,
             min_confidence=0.0,  # do not gate decisions by confidence here
             current_branch=current_branch,
+            current_commit=current_commit,
         )
         all_trace.extend(t4)
 
@@ -387,7 +405,8 @@ class ContextComposer:
         incidents = [n for n in dec_inc_nodes if n.kind in ("debug", "outcome")]
 
         procedures, t5 = _fill_bucket(
-            procedure_scored, b_proc, min_importance=0.3, current_branch=current_branch
+            procedure_scored, b_proc, min_importance=0.3,
+            current_branch=current_branch, current_commit=current_commit,
         )
         all_trace.extend(t5)
 
