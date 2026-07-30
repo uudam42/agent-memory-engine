@@ -198,6 +198,87 @@ no persisted relation rows, `conflict_group_id` is a stable hash of the
 sorted member ids (deterministic across repeated calls). It is attached as
 `TraceEntry.conflict` on the affected "selected" trace entries;
 `EnrichedContextPack`'s node lists are untouched, so no pre-existing
-caller's selection behavior changes. `UnifiedContextRetrievalService`'s
-`KnowledgeTraceEntry` conversion does not yet propagate this typed field —
-documented as a follow-up for the still-pending "compact provenance" work.
+caller's selection behavior changes. As of Issue 6,
+`UnifiedContextRetrievalService`'s `KnowledgeTraceEntry` conversion also
+propagates this typed field (see below) — the follow-up flagged above is
+now closed.
+
+## Compact provenance (Issue 6)
+
+Issues 1-5 each compute a piece of a memory's trustworthiness end-state
+(source validity, constraint scope, provenance-based trust, verification-
+evidence level, retrieval-time conflict status) but, before Issue 6, none
+of it was surfaced compactly to the consuming agent — only as raw fields
+scattered across the full `MemoryNode` dump. Issue 6 adds no new upstream
+computation; it only formats and exposes what Issues 1-5 already decided.
+
+`CompactProvenance` (`memory_engine/models/domain.py`) is a small, mostly-
+optional model built once per candidate by
+`memory_engine.skills.composer.build_provenance()` (pure formatting: reads
+`node.status`, `node.validity_reason`, `constraint_scope.effective_scope()`,
+`source_trust.effective_trust()`/`is_low_trust()`,
+`verification_evidence.effective_evidence_level()`, and the ranker's
+`score_breakdown` for a compact `matched_by` label — never recomputes any
+of those decisions). It is attached to every `TraceEntry` built inside
+`ContextComposer._fill_bucket()` (selected and excluded alike) and indexed
+once more on `EnrichedContextPack.provenance` (keyed by memory id) so
+`EnrichedContextPack.as_text()` can render compact extra lines per item
+without needing the full retrieval trace. Because
+`EnrichedContextPack.provenance` defaults to an empty dict, a pack built by
+any pre-Issue-6 caller (composer-only tests, hand-built packs) renders
+byte-identical `as_text()` output to before.
+
+`RecallService.recall()` threads `current_branch` into `compose()` (for the
+verification-evidence staleness check) and, after Issue 5's
+`detect_conflicts()` runs, folds the outcome (`resolution_status`,
+`len(alternatives)`, and the member's own `role` — exposed via
+`ConflictInfo.own_role`, a new additive field alongside the pre-existing
+`alternatives[*].role`) into the *same* `CompactProvenance` instance already
+referenced by both the trace entry and the pack's provenance index — a
+single mutation is visible from both places, no separate write path to
+keep in sync.
+
+The `fusion.py` gap called out above is closed by adding `conflict` and
+`provenance` fields to `KnowledgeTraceEntry` (additive, default `None`) and
+mapping them straight through in `_build_unified_pack`'s memory-trace loop.
+
+Project-wide/envelope information (project id, a short, non-identifying
+repository fingerprint) is deliberately **not** repeated per memory — it is
+already implied once per response. `ProjectLocalStorage
+.short_repository_fingerprint()` (`memory_engine/bootstrap/local_storage.py`)
+truncates the already-computed, already-hashed Phase 14 `path_hash` to 12
+hex characters (never the raw `canonical_path` or `remote_url_hash`) and is
+surfaced once on `RetrievalMeta.repository_fingerprint` /
+`RetrievalMeta.project_id` in the `retrieve_agent_context` MCP response.
+
+No new database columns were added for Issue 6 — every field it surfaces
+(`status`, `validity_reason`, `constraint_scope`, `trust_level`,
+`evidence_level`, `branch_name`, `source_path`/`source_symbol`,
+`commit_sha`) already existed on `MemoryNode` from Issues 1-4/Phase 9; the
+only genuinely new stored bit is `ConflictInfo.own_role`, which is
+retrieval-time-only (never persisted) exactly like the rest of `ConflictInfo`.
+
+## Issues 1-6 pipeline — consolidated reference
+
+The full mandated pipeline order,
+`workspace/project validation → source validity → branch/scope eligibility
+→ relevance gate → trust/authority checks → ranking → conflict handling →
+composition → compact provenance`, is implemented end-to-end as follows:
+
+| Stage | Implementation |
+|---|---|
+| Workspace/project validation | `memory_engine/mcp/tools.py:_validate_workspace()` (Phase 14), gates every MCP call before `RecallService` runs |
+| Source validity | `memory_engine/services/source_validity.py` + `RecallService.recall()`'s bounded lazy-check block (Issue 1, `16370a6`-era commits / `9293e55a` incident fix) |
+| Branch/scope eligibility | `memory_engine/services/constraint_scope.py` (`constraint_is_eligible`) called from `recall.py`'s `_passes_constraint_gate` (Issue 2) |
+| Relevance gate | `memory_engine/skills/recall.py:_passes_relevance_gate()` (Phase 4, extended by Issue 2 for constraints) |
+| Trust/authority checks | `memory_engine/services/source_trust.py` (`effective_trust`, `trust_meets_minimum`, `is_low_trust`) consumed by `constraint_scope.py` and `conflict_detection.py` (Issue 3) |
+| Ranking | `memory_engine/skills/ranker.py:DeterministicRanker` (Phase 4/9/13 — lexical, semantic, branch-affinity, source-revision-freshness signals) |
+| Conflict handling | `memory_engine/services/conflict_detection.py:detect_conflicts()`, wired into `RecallService.recall()` after composition (Issue 5) |
+| Composition | `memory_engine/skills/composer.py:ContextComposer.compose()` (token-budgeted bucket fill + trace, Phase 4) |
+| Compact provenance | `memory_engine/skills/composer.py:build_provenance()` + `memory_engine/models/domain.py:CompactProvenance`/`EnrichedContextPack.as_text()` + `memory_engine/knowledge/fusion.py`'s `KnowledgeTraceEntry` propagation (Issue 6) |
+
+Verification evidence (Issue 4, `memory_engine/services/verification_evidence.py`)
+is a cross-cutting signal consumed both at the trust/authority stage
+(`adjusted_confidence()`) and at the compact-provenance stage
+(`effective_evidence_level()` → `CompactProvenance.verification_level`),
+rather than a single pipeline position of its own.
