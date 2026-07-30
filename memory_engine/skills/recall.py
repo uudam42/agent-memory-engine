@@ -36,7 +36,9 @@ from memory_engine.models.domain import (
 )
 from memory_engine.repositories.memory_node import MemoryNodeRepository
 from memory_engine.repositories.project import ProjectRepository
+from memory_engine.repositories.relation import RelationRepository
 from memory_engine.services.constraint_scope import constraint_is_eligible
+from memory_engine.services.conflict_detection import detect_conflicts
 from memory_engine.services.memory_service import ProjectNotFoundError
 from memory_engine.services.source_validity import SourceValidityService
 from memory_engine.skills.composer import ContextComposer
@@ -184,6 +186,7 @@ class RecallService:
     ) -> None:
         self._nodes = MemoryNodeRepository(session)
         self._projects = ProjectRepository(session)
+        self._relations = RelationRepository(session)
         self._router = SkillRouter()
         self._ranker = DeterministicRanker()
         self._composer = ContextComposer()
@@ -342,6 +345,31 @@ class RecallService:
             include_evidence=expand_evidence,
             token_budget=budget,
         )
+
+        # -- Issue 5: explicit conflict detection -----------------------------
+        # Runs only over the already-composed selection — i.e. candidates that
+        # already survived source-validity (Issue 1), constraint-scope
+        # (Issue 2), the relevance gate above, and (within
+        # detect_conflicts) an additional trust/authority + status check
+        # (Issue 3/1). Bounded to this small, per-request selection — never a
+        # project-wide scan — and fully retrieval-time: no new rows are
+        # written, so a repeated recall() over unchanged data is deterministic.
+        conflict_candidates = (
+            pack.constraints + pack.architecture + pack.modules
+            + pack.decisions + pack.incidents + pack.procedures
+        )
+        if len(conflict_candidates) >= 2:
+            candidate_ids = [str(n.id) for n in conflict_candidates]
+            relations = self._relations.list_by_node_ids(candidate_ids)
+            conflict_map = detect_conflicts(
+                conflict_candidates,
+                current_branch=request.current_branch,
+                relations=relations,
+            )
+            if conflict_map:
+                for entry in trace:
+                    if entry.action == "selected" and entry.memory_id in conflict_map:
+                        entry.conflict = conflict_map[entry.memory_id]
 
         # Append gate-excluded nodes to trace so the caller can see why they
         # were dropped (matches existing composer trace contract).
