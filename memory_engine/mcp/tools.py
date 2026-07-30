@@ -289,6 +289,10 @@ def tool_retrieve_agent_context(
             embedding_provider=mode_info.embedding_provider,
             embedding_model=mode_info.embedding_model,
             semantic_status=mode_info.semantic_status,
+            # Issue 6: compact provenance envelope info, set once per
+            # response rather than repeated per memory.
+            repository_fingerprint=ctx.storage.short_repository_fingerprint(),
+            project_id=ctx.get_project_id(),
         )
 
         return {

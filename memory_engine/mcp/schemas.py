@@ -27,6 +27,15 @@ class RetrievalMeta(BaseModel):
     embedding_provider: str = "none"
     embedding_model: str = "none"
     semantic_status: str = "disabled"   # disabled | unavailable | used | degraded
+    # Issue 6: compact, non-identifying project marker — set once per
+    # response (envelope-level) rather than repeated on every retrieved
+    # memory. Never a raw absolute path or raw remote URL — see
+    # ProjectLocalStorage.short_repository_fingerprint.
+    repository_fingerprint: str | None = None
+    # Issue 6: project identifier, also envelope-level (a memory's own
+    # provenance never needs to restate which project it came from — every
+    # response is already scoped to exactly one project).
+    project_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
