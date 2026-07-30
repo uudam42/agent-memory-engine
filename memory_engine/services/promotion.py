@@ -159,6 +159,41 @@ class PromotionService:
         self._invalidate_cache(str(node.project_id))
         return node
 
+    def set_trust(
+        self, node_id: str, *, new_trust: str, actor: str, reason: str
+    ) -> MemoryNode:
+        """Explicitly elevate or downgrade a node's trust level (Issue 3).
+
+        The only sanctioned path to raising a node's trust (including to
+        SourceTrust.human_confirmed_policy) — callable from CLI/API by a
+        human or an explicit review process, never automatically from
+        content. Fully auditable via MemoryNodeRepository.set_trust (mirrors
+        mark_stale's pattern for source-validity transitions), and
+        invalidates the unified-context cache exactly like any other
+        memory-affecting write, so a subsequent recall/retrieve immediately
+        reflects the new authority level rather than serving a stale cache
+        entry computed under the old trust.
+        """
+        from memory_engine.models.domain import SourceTrust
+        from memory_engine.services.source_trust import apply_trust_transition
+
+        orm = self._nodes.get_bare(node_id)
+        if orm is None:
+            from memory_engine.services.memory_service import MemoryNodeNotFoundError
+            raise MemoryNodeNotFoundError(node_id)
+
+        node = MemoryNode.model_validate(orm)
+        updated = apply_trust_transition(
+            self._nodes,
+            node,
+            new_trust=SourceTrust(new_trust),
+            actor=actor,
+            reason=reason,
+        )
+        result = updated if updated is not None else node
+        self._invalidate_cache(str(result.project_id))
+        return result
+
     def _invalidate_cache(self, project_id: str) -> None:
         """Invalidate the unified-context cache for the given project.
 
@@ -430,6 +465,18 @@ class PromotionService:
             # descriptive evidence even when hashing failed; SourceValidityService
             # treats a source_path without a hash as existence-only checking.
 
+        # Issue 3: assign a conservative, provenance-based trust level at
+        # creation time. Constraint/procedure/decision candidates never
+        # carry source_path (Task 7 / Phase 3A A1 — see reflection.py's
+        # _SOURCE_BACKED_KINDS), so they always land on generated_report:
+        # agent-asserted prose from a single task, not reviewed/committed
+        # policy — below the authority threshold required for a global
+        # constraint (constraint_scope.py) regardless of confidence.
+        from memory_engine.services.source_trust import assign_creation_trust
+        trust_level = assign_creation_trust(
+            kind=candidate.proposed_kind, source_path=source_path
+        ).value
+
         orm = self._nodes.create(
             project_id=str(candidate.project_id),
             parent_id=str(placement.parent_id) if placement.parent_id else None,
@@ -447,6 +494,7 @@ class PromotionService:
             source_symbol=candidate.source_symbol,
             constraint_scope=candidate.proposed_constraint_scope,
             constraint_scope_ref=candidate.proposed_constraint_scope_ref,
+            trust_level=trust_level,
         )
         return MemoryNode.model_validate(orm)
 

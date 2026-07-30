@@ -19,6 +19,7 @@ from memory_engine.models.domain import (
     MemoryStatus,
     ProjectCreate,
     RecallRequest,
+    SourceTrust,
 )
 from memory_engine.services.constraint_scope import (
     constraint_is_eligible,
@@ -40,7 +41,14 @@ def project(session):
 
 def _make_constraint(session, project, *, title, summary, tags=None, module_path=None,
                       constraint_scope=None, constraint_scope_ref=None, branch_name=None,
-                      branch_scope=None, confidence=0.95, status=MemoryStatus.active):
+                      branch_scope=None, confidence=0.95, status=MemoryStatus.active,
+                      trust_level=SourceTrust.reviewed_committed_design.value):
+    # Issue 3: these fixtures predate the source trust model and exercise
+    # scope eligibility, not trust — default to a trust level that clears
+    # the authority threshold so existing scope-only assertions are
+    # unaffected. Tests that specifically need to prove trust (not just
+    # confidence) gates global authority pass trust_level=None/low explicitly
+    # (see test_source_trust.py).
     return MemoryService(session).create_node(MemoryNodeCreate(
         project_id=project.id,
         title=title,
@@ -51,6 +59,7 @@ def _make_constraint(session, project, *, title, summary, tags=None, module_path
         constraint_scope=constraint_scope,
         status=status,
         confidence=confidence,
+        trust_level=trust_level,
     ))
 
 

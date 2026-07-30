@@ -50,6 +50,16 @@ class MemoryService:
                 f"Tree depth {depth} exceeds maximum allowed depth {settings.max_tree_depth}."
             )
 
+        # Issue 3: callers may set trust_level explicitly (e.g. a caller that
+        # knows the content is human-authored policy); otherwise fall back to
+        # the same conservative, provenance-based default promotion.py uses.
+        trust_level = payload.trust_level
+        if trust_level is None:
+            from memory_engine.services.source_trust import assign_creation_trust
+            trust_level = assign_creation_trust(
+                kind=payload.kind, source_path=payload.source_path
+            ).value
+
         orm = self._nodes.create(
             project_id=str(payload.project_id),
             parent_id=str(payload.parent_id) if payload.parent_id else None,
@@ -68,6 +78,7 @@ class MemoryService:
             source_symbol=payload.source_symbol,
             constraint_scope=payload.constraint_scope,
             constraint_scope_ref=payload.constraint_scope_ref,
+            trust_level=trust_level,
         )
         return MemoryNode.model_validate(orm)
 

@@ -13,9 +13,10 @@ This module adds a scope model on top of the existing structured fields
 duplicating them:
 
   global        — applies to every task in this project. Bypasses the
-                  relevance gate only when additionally active, source-valid
-                  (or explicitly human-confirmed — not modeled pre-Issue-3),
-                  sufficiently confident, and branch-compatible.
+                  relevance gate only when additionally active, sufficiently
+                  confident, sufficiently *trusted* (Issue 3 — provenance-
+                  based; see memory_engine.services.source_trust), and
+                  branch-compatible.
   repository    — applies anywhere in this project, but is not asserted to
                   be universally true outside topic-relevant tasks. This is
                   the conservative default for legacy/unscoped constraints:
@@ -49,11 +50,16 @@ Conservative legacy migration rule (never inferred as global):
 from __future__ import annotations
 
 from memory_engine.models.domain import ConstraintScope, MemoryNode, MemoryStatus
+from memory_engine.services.source_trust import trust_meets_minimum
 
 # Minimum confidence required for an explicitly-global constraint to bypass
-# the relevance gate. A stand-in for "sufficiently trusted" until Issue 3
-# (source trust model) exists; documented, not fabricated as a full trust
-# system.
+# the relevance gate. Confidence measures the *creating pipeline's*
+# certainty about the fact — it remains a meaningful, independent signal
+# (e.g. distinguishing a verified-by-tests constraint from a speculative
+# one) and is kept alongside the Issue 3 trust check below, which is the
+# real replacement for what used to be this constant's sole job: standing
+# in for "sufficiently trusted". Confidence alone is no longer sufficient —
+# see trust_meets_minimum() below.
 _MIN_GLOBAL_CONFIDENCE = 0.85
 
 # Statuses that make a node non-authoritative regardless of scope.
@@ -129,6 +135,16 @@ def constraint_is_eligible(
         if node.status in _NON_AUTHORITATIVE_STATUSES:
             return False
         if node.confidence < _MIN_GLOBAL_CONFIDENCE:
+            return False
+        # Issue 3: the real trust gate. Confidence (checked above) measures
+        # certainty about the fact; trust measures whether the content's
+        # *provenance* is the kind that may become authoritative policy at
+        # all. Low-trust content (e.g. a reflection-derived constraint with
+        # no reviewed/committed-design backing — including anything sourced
+        # from a README, log, diff, or test fixture that made it into
+        # discovered_constraints) can be maximally confident and still must
+        # not bypass the relevance gate as a global rule.
+        if not trust_meets_minimum(node):
             return False
         # Branch restriction: an explicitly-global constraint bound to a
         # specific branch must still respect that branch when both sides
