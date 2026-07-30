@@ -192,6 +192,14 @@ class UnifiedContextRetrievalService:
                 status=te.status,
                 heading_path=te.tree_path,
                 reason=te.reason,
+                # Issue 6: close the gap flagged by Issue 5 — TraceEntry's
+                # conflict/provenance fields were previously dropped during
+                # this memory -> knowledge trace conversion, so an MCP
+                # client reading KnowledgeTraceEntry (the shape actually
+                # returned by UnifiedContextRetrievalService) never saw
+                # them even when RecallService had already computed them.
+                conflict=te.conflict,
+                provenance=te.provenance,
             ))
 
         # ── Knowledge retrieval ───────────────────────────────────────────────
