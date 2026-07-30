@@ -151,3 +151,53 @@ handshake) is the only project root ever passed into
 the MCP tool layer (`mcp/tools.py`). Direct unit-test construction with
 `project_root=None` remains fully supported and performs zero filesystem
 access — this is the default for every pre-existing caller.
+
+## Explicit conflict detection (Issue 5)
+
+Branch-affinity ranking (Phase 9) changes *which* memory a task sees first
+but never tells the agent that two otherwise-qualifying memories actively
+disagree (e.g. `main`: "use REST for service communication" vs.
+`feature/grpc`: "use gRPC for service communication"). Picking one by score
+alone hides that material conflict.
+
+`memory_engine/services/conflict_detection.py`'s `detect_conflicts()` runs
+inside `RecallService.recall()`, **after** `ContextComposer.compose()` — i.e.
+only over candidates that already survived source-validity (Issue 1),
+constraint-scope eligibility (Issue 2), and the relevance gate, and that
+composer has actually selected into the context pack. Within that already
+small set, it additionally excludes:
+
+- non-authoritative statuses (`stale`, `superseded`, `archived`,
+  `needs_revalidation`, `invalidated`, `needs_review`);
+- authoritative-kind (`constraint`/`architecture`/`decision`) nodes that
+  fail Issue 3's `trust_meets_minimum` threshold.
+
+Members are grouped by, in priority order: an explicit stored
+`contradicts`/`supersedes` `MemoryRelation` (bypasses branch bounding — a
+`supersedes` edge instead **drops** the superseded side from membership
+entirely, defensively, even if its `status` transition hasn't landed yet);
+otherwise a shared `source_symbol`, `source_path`, `module_path`, or (for
+`decision`-kind nodes with none of those) an exact-match normalized-title
+key. Identity-based grouping is bounded to nodes that are unscoped/global,
+mainline-ish (`branch_scope` in `{global, mainline, inherited_branch}`), or
+on the request's own `current_branch` — a memory that only exists on some
+other, unrelated branch is never pulled into a conflict by identity alone.
+
+Resolution:
+
+- exactly one current-branch member + one-or-more mainline/global members
+  → `current_branch_preferred`, the current-branch member is
+  `role="preferred"`, the rest `role="historical"`;
+- anything else (no `current_branch`, two members on the same branch, an
+  unrelated-branch member reachable only via a relation, etc.) →
+  `unresolved` — every member is `role="unresolved_peer"`. Score is never
+  consulted to break this tie.
+
+The result is a fully retrieval-time, in-memory computation — no new table,
+no persisted relation rows, `conflict_group_id` is a stable hash of the
+sorted member ids (deterministic across repeated calls). It is attached as
+`TraceEntry.conflict` on the affected "selected" trace entries;
+`EnrichedContextPack`'s node lists are untouched, so no pre-existing
+caller's selection behavior changes. `UnifiedContextRetrievalService`'s
+`KnowledgeTraceEntry` conversion does not yet propagate this typed field —
+documented as a follow-up for the still-pending "compact provenance" work.
