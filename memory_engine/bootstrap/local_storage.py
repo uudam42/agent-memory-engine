@@ -232,6 +232,21 @@ class ProjectLocalStorage:
             pass
         return None
 
+    def short_repository_fingerprint(self) -> str:
+        """Issue 6 — compact, non-identifying project marker for provenance
+        envelopes returned to MCP clients (once per response, never repeated
+        per retrieved memory).
+
+        Derived from the already-computed ``path_hash`` (itself a sha256 of
+        ``canonical_path`` — never the raw path — see ``_build_fingerprint``)
+        truncated to 12 hex characters. Never derived from
+        ``remote_url_hash`` or ``canonical_path`` directly, consistent with
+        the privacy rules already established for the Phase 14 fingerprint
+        file itself: no raw absolute path and no raw remote URL ever leave
+        this method.
+        """
+        return self._build_fingerprint()["path_hash"][:12]
+
     def _build_fingerprint(self) -> dict:
         """Build the fingerprint payload for this project root.
 

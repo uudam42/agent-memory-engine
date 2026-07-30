@@ -12,6 +12,26 @@ Phase 11 addition:
   Retention columns: memory_nodes.(archived_at, archived_reason,
   compacted_into_id, last_retrieved_at, retrieval_count) and
   memory_candidates.(expires_at, expiry_reason).
+
+Phase 15 addition (Issue 1 — automatic stale-memory detection):
+  memory_nodes.(source_path, source_hash, validity_reason,
+  validity_checked_at, previous_status). All nullable — legacy nodes with
+  no source_path are never touched by SourceValidityService.
+
+Issue 3 addition (source trust model):
+  memory_nodes.(trust_level, trust_reason, trust_set_at, previous_trust,
+  trust_elevated_by, trust_elevated_reason, trust_elevated_at). All nullable
+  — legacy nodes with no trust_level read as SourceTrust.unknown and never
+  satisfy an authority threshold (see memory_engine.services.source_trust).
+
+Issue 4 addition (verification evidence levels):
+  memory_nodes.(evidence_level, verification_evidence, evidence_reason,
+  evidence_set_at, previous_evidence_level, evidence_elevated_by,
+  evidence_elevated_reason, evidence_elevated_at) and
+  memory_candidates.(proposed_evidence_level, proposed_verification_evidence).
+  All nullable — legacy rows with no evidence_level read as
+  VerificationEvidenceLevel.unverified (see
+  memory_engine.services.verification_evidence).
 """
 
 from sqlalchemy import text
@@ -64,6 +84,45 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("memory_nodes", "retrieval_count", "INTEGER DEFAULT 0"),
     ("memory_candidates", "expires_at", "DATETIME"),
     ("memory_candidates", "expiry_reason", "VARCHAR(512)"),
+    # Phase 15: source-validity lifecycle columns (Issue 1)
+    ("memory_nodes", "source_path", "VARCHAR(1024)"),
+    ("memory_nodes", "source_hash", "VARCHAR(64)"),
+    ("memory_nodes", "validity_reason", "VARCHAR(512)"),
+    ("memory_nodes", "validity_checked_at", "DATETIME"),
+    ("memory_nodes", "previous_status", "VARCHAR(32)"),
+    # Phase 15 follow-up: source-provenance capture + symbol evidence (Tasks 2, 8)
+    ("memory_nodes", "source_symbol", "VARCHAR(256)"),
+    ("memory_candidates", "source_path", "VARCHAR(1024)"),
+    ("memory_candidates", "source_symbol", "VARCHAR(256)"),
+    # Issue 2 (scope-aware constraints): explicit scope column, no DEFAULT —
+    # legacy rows get NULL (never silently promoted to 'global').
+    ("memory_nodes", "constraint_scope", "VARCHAR(32)"),
+    ("memory_nodes", "constraint_scope_ref", "VARCHAR(1024)"),
+    ("memory_candidates", "proposed_constraint_scope", "VARCHAR(32)"),
+    ("memory_candidates", "proposed_constraint_scope_ref", "VARCHAR(1024)"),
+    # Issue 3 (source trust model): provenance-based trust lifecycle, no
+    # DEFAULT — legacy rows get NULL, read as SourceTrust.unknown at the
+    # domain layer (never silently promoted to an authoritative trust level).
+    ("memory_nodes", "trust_level", "VARCHAR(32)"),
+    ("memory_nodes", "trust_reason", "VARCHAR(512)"),
+    ("memory_nodes", "trust_set_at", "DATETIME"),
+    ("memory_nodes", "previous_trust", "VARCHAR(32)"),
+    ("memory_nodes", "trust_elevated_by", "VARCHAR(128)"),
+    ("memory_nodes", "trust_elevated_reason", "VARCHAR(512)"),
+    ("memory_nodes", "trust_elevated_at", "DATETIME"),
+    # Issue 4 (verification evidence levels): nullable, additive — legacy
+    # rows get NULL, read as VerificationEvidenceLevel.unverified at the
+    # domain layer (never silently promoted to a verified default).
+    ("memory_nodes", "evidence_level", "VARCHAR(32)"),
+    ("memory_nodes", "verification_evidence", "TEXT"),
+    ("memory_nodes", "evidence_reason", "VARCHAR(512)"),
+    ("memory_nodes", "evidence_set_at", "DATETIME"),
+    ("memory_nodes", "previous_evidence_level", "VARCHAR(32)"),
+    ("memory_nodes", "evidence_elevated_by", "VARCHAR(128)"),
+    ("memory_nodes", "evidence_elevated_reason", "VARCHAR(512)"),
+    ("memory_nodes", "evidence_elevated_at", "DATETIME"),
+    ("memory_candidates", "proposed_evidence_level", "VARCHAR(32)"),
+    ("memory_candidates", "proposed_verification_evidence", "TEXT"),
 ]
 
 

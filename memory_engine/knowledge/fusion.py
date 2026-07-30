@@ -28,7 +28,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
@@ -43,6 +44,7 @@ from memory_engine.knowledge.multigranular_search import MultiGranularKnowledgeS
 from memory_engine.knowledge.search import KnowledgeSearchService
 from memory_engine.knowledge.vector_index import KnowledgeVectorIndex
 from memory_engine.models.domain import (
+    MemoryNode,
     RecallRequest,
     TaskIntent,
 )
@@ -57,6 +59,8 @@ from memory_engine.models.knowledge_domain import (
     UnifiedRetrievalRequest,
 )
 from memory_engine.models.orm import MemoryNodeORM
+from memory_engine.repositories.memory_node import MemoryNodeRepository
+from memory_engine.services.source_validity import SourceValidityService
 from memory_engine.skills.recall import RecallService
 
 
@@ -99,10 +103,14 @@ class UnifiedContextRetrievalService:
         vector_index: KnowledgeVectorIndex | None = None,
         cache: SimpleCache | None = None,
         semantic_index=None,  # type: ignore[no-untyped-def]  # Phase 13: SqliteVecIndex | None
+        project_root: str | None = None,  # Phase 15: enables source-validity checks
+        revision_hook: Callable[[], None] | None = None,  # Task 5: bump memory_revision
     ) -> None:
         self._session = session
         self._vector_index: KnowledgeVectorIndex = vector_index or get_shared_vector_index()
         self._cache: _Cache = cache or get_global_cache()
+        self._project_root = project_root
+        self._revision_hook = revision_hook
         # Phase 13: persistent semantic backend, threaded into knowledge search.
         self._semantic_index = semantic_index
 
@@ -130,6 +138,20 @@ class UnifiedContextRetrievalService:
             memory_generation=req.memory_generation,
         )
         cached = self._cache.get(cache_key)
+        if cached is not None and self._project_root:
+            # Task 6: a cache hit must never bypass source validation after
+            # relevant project state changes (e.g. the source file behind a
+            # cached memory was deleted or edited since the cache was
+            # populated). Rather than hashing every project file, or
+            # disabling caching, we validate only the memory IDs actually
+            # referenced by *this* cached pack (bounded — typically a
+            # handful of "selected" trace entries, never a repo-wide scan).
+            if self._revalidate_cached_memories(cached, project_id_str):
+                self._cache.invalidate_key(cache_key)
+                cached = None
+                if self._revision_hook is not None:
+                    self._revision_hook()
+
         if cached is not None:
             result = cached
             result.cache_hit = True
@@ -141,7 +163,11 @@ class UnifiedContextRetrievalService:
         memory_budget = int(req.token_budget * _MEMORY_BUDGET_RATIO)
         knowledge_budget = req.token_budget - memory_budget
 
-        recall_svc = RecallService(self._session)
+        recall_svc = RecallService(
+            self._session,
+            project_root=self._project_root,
+            revision_hook=self._revision_hook,
+        )
         recall_req = RecallRequest(
             project_id=req.project_id,
             current_task=req.task,
@@ -149,6 +175,12 @@ class UnifiedContextRetrievalService:
             current_symbols=req.current_symbols,
             token_budget=memory_budget,
             current_branch=req.current_branch,
+            # Task 9 (integration review): UnifiedRetrievalRequest already
+            # carried head_commit (used in the cache key above) but never
+            # forwarded it into RecallRequest, so verification-evidence
+            # commit-based staleness downgrade never fired during a real
+            # retrieve() call even though current_branch was threaded.
+            current_commit=req.head_commit,
         )
         recall_result = recall_svc.recall(recall_req)
         memory_pack = recall_result.context_pack
@@ -166,6 +198,14 @@ class UnifiedContextRetrievalService:
                 status=te.status,
                 heading_path=te.tree_path,
                 reason=te.reason,
+                # Issue 6: close the gap flagged by Issue 5 — TraceEntry's
+                # conflict/provenance fields were previously dropped during
+                # this memory -> knowledge trace conversion, so an MCP
+                # client reading KnowledgeTraceEntry (the shape actually
+                # returned by UnifiedContextRetrievalService) never saw
+                # them even when RecallService had already computed them.
+                conflict=te.conflict,
+                provenance=te.provenance,
             ))
 
         # ── Knowledge retrieval ───────────────────────────────────────────────
@@ -304,6 +344,51 @@ class UnifiedContextRetrievalService:
         # ── Cache ─────────────────────────────────────────────────────────────
         self._cache.set(cache_key, pack, project_id_str)
         return pack
+
+    def _revalidate_cached_memories(self, cached_pack: Any, project_id_str: str) -> bool:
+        """Bounded source-validity re-check for a cache-hit's memory results.
+
+        Task 6: inspects only the memory node IDs referenced as "selected" in
+        the cached pack's retrieval_trace (bounded by the pack's own token
+        budget — never a repository-wide scan). Any persisted transition is
+        recorded via the same auditable SourceValidityService/repository path
+        used during a full recall. Returns True if any node transitioned
+        (the caller must then treat the cache entry as stale).
+        """
+        if not self._project_root:
+            return False
+
+        memory_ids = [
+            te.result_id
+            for te in (getattr(cached_pack, "retrieval_trace", None) or [])
+            if te.result_type == "memory" and te.action == "selected" and te.result_id
+        ]
+        if not memory_ids:
+            return False
+
+        repo = MemoryNodeRepository(self._session)
+        validity = SourceValidityService()
+        project_root = Path(self._project_root)
+        changed_any = False
+        hash_cache: dict[str, str | None] = {}
+
+        for mid in memory_ids:
+            orm = repo.get_bare(mid)
+            if orm is None or not orm.source_path:
+                continue
+            node = MemoryNode.model_validate(orm)
+            result = validity.check(node, project_root, hash_cache=hash_cache)
+            if not result.changed:
+                continue
+            repo.set_validity(
+                mid,
+                new_status=result.new_status.value,
+                reason=result.reason or "",
+                new_source_hash=result.new_source_hash,
+            )
+            changed_any = True
+
+        return changed_any
 
 
 # ---------------------------------------------------------------------------

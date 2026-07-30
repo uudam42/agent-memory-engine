@@ -42,6 +42,8 @@ Stale-marking: if the action is supersede, the old node's status is set to
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy.orm import Session
 
 from memory_engine.models.domain import (
@@ -77,7 +79,7 @@ class ProjectNotFoundError(KeyError):
 
 
 class PromotionService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, project_root: str | Path | None = None) -> None:
         self._candidates = CandidateRepository(session)
         self._nodes = MemoryNodeRepository(session)
         self._evidence = EvidenceRepository(session)
@@ -87,6 +89,14 @@ class PromotionService:
         self._dedup = DeduplicationService()
         self._conflict = ConflictService()
         self._consolidation = ConsolidationService(session)
+        # Phase 15 follow-up (Task 2/3): when project_root is supplied, a
+        # candidate's source_path (set by ReflectionSkill for single-file,
+        # source-backed candidates) is hashed at node-creation time so the
+        # persisted MemoryNode carries real source_hash evidence. None
+        # preserves prior behavior exactly — source_path may still be
+        # persisted without a hash (existence-only checking), and callers
+        # that never pass project_root (CLI, most unit tests) are unaffected.
+        self._project_root: Path | None = Path(project_root) if project_root else None
 
     # ------------------------------------------------------------------
     # Public API
@@ -148,6 +158,76 @@ class PromotionService:
         # Stale mark changes what recall returns — invalidate cache
         self._invalidate_cache(str(node.project_id))
         return node
+
+    def set_trust(
+        self, node_id: str, *, new_trust: str, actor: str, reason: str
+    ) -> MemoryNode:
+        """Explicitly elevate or downgrade a node's trust level (Issue 3).
+
+        The only sanctioned path to raising a node's trust (including to
+        SourceTrust.human_confirmed_policy) — callable from CLI/API by a
+        human or an explicit review process, never automatically from
+        content. Fully auditable via MemoryNodeRepository.set_trust (mirrors
+        mark_stale's pattern for source-validity transitions), and
+        invalidates the unified-context cache exactly like any other
+        memory-affecting write, so a subsequent recall/retrieve immediately
+        reflects the new authority level rather than serving a stale cache
+        entry computed under the old trust.
+        """
+        from memory_engine.models.domain import SourceTrust
+        from memory_engine.services.source_trust import apply_trust_transition
+
+        orm = self._nodes.get_bare(node_id)
+        if orm is None:
+            from memory_engine.services.memory_service import MemoryNodeNotFoundError
+            raise MemoryNodeNotFoundError(node_id)
+
+        node = MemoryNode.model_validate(orm)
+        updated = apply_trust_transition(
+            self._nodes,
+            node,
+            new_trust=SourceTrust(new_trust),
+            actor=actor,
+            reason=reason,
+        )
+        result = updated if updated is not None else node
+        self._invalidate_cache(str(result.project_id))
+        return result
+
+    def set_evidence_level(
+        self, node_id: str, *, new_level: str, actor: str, reason: str
+    ) -> MemoryNode:
+        """Explicitly elevate or downgrade a node's verification-evidence
+        level (Issue 4).
+
+        The only sanctioned path to raising a node's verification-evidence
+        level to ``VerificationEvidenceLevel.human_confirmed`` — callable
+        from CLI/API by a human or an explicit review process, never
+        automatically from an agent's claim. Mirrors ``set_trust`` exactly,
+        including cache invalidation so a subsequent recall immediately
+        reflects the new level.
+        """
+        from memory_engine.models.domain import VerificationEvidenceLevel
+        from memory_engine.services.verification_evidence import (
+            apply_verification_transition,
+        )
+
+        orm = self._nodes.get_bare(node_id)
+        if orm is None:
+            from memory_engine.services.memory_service import MemoryNodeNotFoundError
+            raise MemoryNodeNotFoundError(node_id)
+
+        node = MemoryNode.model_validate(orm)
+        updated = apply_verification_transition(
+            self._nodes,
+            node,
+            new_level=VerificationEvidenceLevel(new_level),
+            actor=actor,
+            reason=reason,
+        )
+        result = updated if updated is not None else node
+        self._invalidate_cache(str(result.project_id))
+        return result
 
     def _invalidate_cache(self, project_id: str) -> None:
         """Invalidate the unified-context cache for the given project.
@@ -410,6 +490,39 @@ class PromotionService:
         if depth > settings.max_tree_depth:
             depth = settings.max_tree_depth
 
+        source_hash: str | None = None
+        source_path = candidate.source_path
+        if source_path and self._project_root is not None:
+            from memory_engine.services.source_validity import compute_source_hash
+            source_hash = compute_source_hash(self._project_root, source_path)
+            # compute_source_hash returns None for missing/unsafe/unreadable
+            # paths — never fabricated. source_path is still persisted as
+            # descriptive evidence even when hashing failed; SourceValidityService
+            # treats a source_path without a hash as existence-only checking.
+
+        # Issue 3: assign a conservative, provenance-based trust level at
+        # creation time. Constraint/procedure/decision candidates never
+        # carry source_path (Task 7 / Phase 3A A1 — see reflection.py's
+        # _SOURCE_BACKED_KINDS), so they always land on generated_report:
+        # agent-asserted prose from a single task, not reviewed/committed
+        # policy — below the authority threshold required for a global
+        # constraint (constraint_scope.py) regardless of confidence.
+        from memory_engine.services.source_trust import assign_creation_trust
+        trust_level = assign_creation_trust(
+            kind=candidate.proposed_kind, source_path=source_path
+        ).value
+
+        # Issue 4: propagate the verification-evidence level/data ReflectionSkill
+        # already derived conservatively onto the created node. None on
+        # candidates created via any other path (e.g. direct MemoryService
+        # callers) — legacy behavior is unaffected.
+        evidence_level = candidate.proposed_evidence_level
+        verification_evidence = (
+            candidate.proposed_verification_evidence.model_dump(mode="json")
+            if candidate.proposed_verification_evidence is not None
+            else None
+        )
+
         orm = self._nodes.create(
             project_id=str(candidate.project_id),
             parent_id=str(placement.parent_id) if placement.parent_id else None,
@@ -422,6 +535,14 @@ class PromotionService:
             confidence=candidate.confidence,
             importance=candidate.importance,
             module_path=candidate.proposed_module_path,
+            source_path=source_path,
+            source_hash=source_hash,
+            source_symbol=candidate.source_symbol,
+            constraint_scope=candidate.proposed_constraint_scope,
+            constraint_scope_ref=candidate.proposed_constraint_scope_ref,
+            trust_level=trust_level,
+            evidence_level=evidence_level,
+            verification_evidence=verification_evidence,
         )
         return MemoryNode.model_validate(orm)
 

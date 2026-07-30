@@ -20,7 +20,11 @@ Trimming order when budget is exceeded:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from memory_engine.models.domain import (
+    AUTHORITATIVE_KINDS,
+    CompactProvenance,
     EnrichedContextPack,
     Evidence,
     MemoryKind,
@@ -29,9 +33,14 @@ from memory_engine.models.domain import (
     Project,
     RoutingPlan,
     ScoredMemory,
+    TRUST_LABELS,
     TaskIntent,
     TraceEntry,
+    VERIFICATION_LABELS,
 )
+from memory_engine.services.constraint_scope import effective_scope
+from memory_engine.services.source_trust import effective_trust, is_low_trust
+from memory_engine.services.verification_evidence import effective_evidence_level
 
 # ---------------------------------------------------------------------------
 # Default budget buckets (tokens)
@@ -91,6 +100,98 @@ def _node_tree_path(node: MemoryNode) -> list[str]:
     return path
 
 
+# Issue 6: statuses that mean a memory should not be read as current/
+# authoritative content, even though composer status-gating (above) may
+# have already excluded it — mirrors constraint_scope.py's
+# _NON_AUTHORITATIVE_STATUSES so provenance labeling never diverges from
+# actual eligibility logic.
+_NON_AUTHORITATIVE_PROVENANCE_STATUSES = frozenset({
+    MemoryStatus.stale,
+    MemoryStatus.superseded,
+    MemoryStatus.archived,
+    MemoryStatus.needs_review,
+    MemoryStatus.needs_revalidation,
+    MemoryStatus.invalidated,
+})
+
+
+def _matched_by(breakdown: dict[str, float]) -> list[str]:
+    """Issue 6 — compact labels for which relevance signal(s) fired.
+
+    Reuses the exact same signals/thresholds already used by the relevance
+    gate (memory_engine.skills.recall._passes_relevance_gate) — no new
+    business logic, purely a compact restatement of already-computed
+    score_breakdown values that already exist separately in the trace.
+    """
+    matched: list[str] = []
+    if breakdown.get("symbol_overlap", 0.0) > 0.0:
+        matched.append("symbol")
+    if breakdown.get("module_path_overlap", 0.0) > 0.0:
+        matched.append("file")
+    if breakdown.get("semantic_similarity", 0.0) >= 0.4:
+        matched.append("semantic")
+    if breakdown.get("lexical_similarity", 0.0) > 0.0:
+        matched.append("lexical")
+    return matched
+
+
+def build_provenance(
+    node: MemoryNode,
+    breakdown: dict[str, float] | None = None,
+    *,
+    current_branch: str | None = None,
+    current_commit: str | None = None,
+) -> CompactProvenance:
+    """Issue 6 — compact provenance summary for ``node``.
+
+    Purely surfaces already-computed Issues 1-5 state (source validity,
+    constraint scope, trust, verification evidence) via the existing
+    services — never recomputes eligibility itself. Conflict-related fields
+    (``conflict_status``/``conflict_alternatives_count``/``historical``) are
+    intentionally left at their defaults here; RecallService fills them in
+    after Issue 5's conflict detection runs (which happens after
+    composition), on the same object instance.
+    """
+    breakdown = breakdown or {}
+    revision = node.commit_sha or node.source_revision
+    short_revision = revision[:8] if revision else None
+
+    status_value = node.status.value if hasattr(node.status, "value") else str(node.status)
+    kind_value = node.kind.value if hasattr(node.kind, "value") else str(node.kind)
+
+    constraint_scope_value: str | None = None
+    if kind_value == "constraint":
+        constraint_scope_value = effective_scope(node).value
+
+    trust_label = TRUST_LABELS.get(effective_trust(node).value, "unknown")
+    verification_label = VERIFICATION_LABELS.get(
+        effective_evidence_level(
+            node, current_branch=current_branch, current_commit=current_commit
+        ).value,
+        "unverified",
+    )
+
+    authority: Literal["evidence-only", "non-authoritative"] | None = None
+    if status_value in {s.value for s in _NON_AUTHORITATIVE_PROVENANCE_STATUSES}:
+        authority = "non-authoritative"
+    elif kind_value in AUTHORITATIVE_KINDS and is_low_trust(node):
+        authority = "evidence-only"
+
+    return CompactProvenance(
+        branch=node.branch_name,
+        source_path=node.source_path,
+        source_symbol=node.source_symbol,
+        source_revision=short_revision,
+        status=status_value,
+        validity_reason=node.validity_reason,
+        constraint_scope=constraint_scope_value,
+        trust_level=trust_label,
+        verification_level=verification_label,
+        matched_by=_matched_by(breakdown),
+        authority=authority,
+    )
+
+
 def _fill_bucket(
     scored: list[ScoredMemory],
     budget: int,
@@ -98,6 +199,8 @@ def _fill_bucket(
     min_confidence: float = 0.0,
     min_importance: float = 0.0,
     include_stale: bool = False,
+    current_branch: str | None = None,
+    current_commit: str | None = None,
 ) -> tuple[list[MemoryNode], list[TraceEntry]]:
     """Greedily fill a bucket until budget exhausted, tracking trace entries."""
     selected: list[MemoryNode] = []
@@ -109,10 +212,22 @@ def _fill_bucket(
         breakdown = sm.score_breakdown          # Phase 4: full breakdown in trace
         tree_path = _node_tree_path(node)
         node_status = node.status.value if hasattr(node.status, "value") else str(node.status)
+        # Issue 6: built once per candidate from already-loaded node fields —
+        # no new I/O, no re-derivation of Issues 1-5's eligibility decisions.
+        prov = build_provenance(
+            node, breakdown, current_branch=current_branch, current_commit=current_commit
+        )
 
-        # Exclude stale / superseded by default
+        # Exclude stale / superseded / invalidated / needs-revalidation by default.
+        # Phase 15 (Issue 1): needs_revalidation and invalidated are non-authoritative
+        # source-validity states — treated the same as stale for active-context purposes,
+        # but distinguishable in the trace reason below (node.status.value).
         if not include_stale and node.status in (
-            MemoryStatus.stale, MemoryStatus.superseded, MemoryStatus.archived
+            MemoryStatus.stale,
+            MemoryStatus.superseded,
+            MemoryStatus.archived,
+            MemoryStatus.needs_revalidation,
+            MemoryStatus.invalidated,
         ):
             trace.append(TraceEntry(
                 memory_id=str(node.id),
@@ -123,6 +238,7 @@ def _fill_bucket(
                 score_breakdown=breakdown,
                 status=node_status,
                 tree_path=tree_path,
+                provenance=prov,
             ))
             continue
 
@@ -137,6 +253,7 @@ def _fill_bucket(
                 score_breakdown=breakdown,
                 status=node_status,
                 tree_path=tree_path,
+                provenance=prov,
             ))
             continue
 
@@ -151,6 +268,7 @@ def _fill_bucket(
                 score_breakdown=breakdown,
                 status=node_status,
                 tree_path=tree_path,
+                provenance=prov,
             ))
             continue
 
@@ -165,6 +283,7 @@ def _fill_bucket(
                 score_breakdown=breakdown,
                 status=node_status,
                 tree_path=tree_path,
+                provenance=prov,
             ))
             continue
 
@@ -177,6 +296,7 @@ def _fill_bucket(
             reason=_selection_reason(node, sm.score),
             score=sm.score,
             score_breakdown=breakdown,
+            provenance=prov,
             status=node_status,
             tree_path=tree_path,
         ))
@@ -214,6 +334,8 @@ class ContextComposer:
         routing_plan: RoutingPlan,
         include_evidence: bool = False,
         token_budget: int | None = None,
+        current_branch: str | None = None,
+        current_commit: str | None = None,
     ) -> tuple[EnrichedContextPack, list[TraceEntry]]:
         """Build a structured ContextPack, returning it with the full trace."""
 
@@ -253,19 +375,30 @@ class ContextComposer:
         )
 
         # Fill each bucket
-        constraints, t1 = _fill_bucket(constraints_scored, b_constraints)
+        constraints, t1 = _fill_bucket(
+            constraints_scored, b_constraints,
+            current_branch=current_branch, current_commit=current_commit,
+        )
         all_trace.extend(t1)
 
-        architecture, t2 = _fill_bucket(arch_scored, b_arch)
+        architecture, t2 = _fill_bucket(
+            arch_scored, b_arch,
+            current_branch=current_branch, current_commit=current_commit,
+        )
         all_trace.extend(t2)
 
-        modules, t3 = _fill_bucket(module_scored, b_modules)
+        modules, t3 = _fill_bucket(
+            module_scored, b_modules,
+            current_branch=current_branch, current_commit=current_commit,
+        )
         all_trace.extend(t3)
 
         dec_inc_nodes, t4 = _fill_bucket(
             dec_inc_scored,
             b_dec_inc,
             min_confidence=0.0,  # do not gate decisions by confidence here
+            current_branch=current_branch,
+            current_commit=current_commit,
         )
         all_trace.extend(t4)
 
@@ -273,7 +406,10 @@ class ContextComposer:
         decisions = [n for n in dec_inc_nodes if n.kind == "decision"]
         incidents = [n for n in dec_inc_nodes if n.kind in ("debug", "outcome")]
 
-        procedures, t5 = _fill_bucket(procedure_scored, b_proc, min_importance=0.3)
+        procedures, t5 = _fill_bucket(
+            procedure_scored, b_proc, min_importance=0.3,
+            current_branch=current_branch, current_commit=current_commit,
+        )
         all_trace.extend(t5)
 
         # Evidence references — only from selected nodes, only if needed
@@ -299,6 +435,19 @@ class ContextComposer:
         )
         token_estimate = _estimate_tokens(total_text)
 
+        # Issue 6: index provenance by memory id for selected nodes only —
+        # this is what EnrichedContextPack.as_text() reads to render compact
+        # per-item provenance lines. Each value is the SAME CompactProvenance
+        # instance already attached to the matching TraceEntry.provenance,
+        # so a later in-place mutation (RecallService attaching conflict
+        # info, which runs after compose()) is visible through both without
+        # rebuilding or duplicating anything.
+        provenance_index = {
+            t.memory_id: t.provenance
+            for t in all_trace
+            if t.action == "selected" and t.provenance is not None
+        }
+
         pack = EnrichedContextPack(
             project=project,
             constraints=constraints,
@@ -310,6 +459,7 @@ class ContextComposer:
             evidence_refs=evidence_refs,
             total_nodes=len(all_selected),
             token_estimate=token_estimate,
+            provenance=provenance_index,
         )
 
         return pack, all_trace

@@ -16,6 +16,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from memory_engine.models.domain import CompactProvenance, ConflictInfo
+
 try:
     from enum import StrEnum
 except ImportError:
@@ -237,6 +239,13 @@ class KnowledgeTraceEntry(BaseModel):
     status: str = "indexed"
     heading_path: list[str] = Field(default_factory=list)
     reason: str = ""
+    # Issue 6: propagated from the underlying memory_engine.models.domain
+    # TraceEntry for result_type == "memory" entries (Issue 5 flagged this
+    # conversion in memory_engine.knowledge.fusion._build_unified_pack as
+    # missing the ConflictInfo field entirely). None for knowledge-type
+    # entries and for every pre-Issue-6 caller — fully additive.
+    conflict: ConflictInfo | None = None
+    provenance: CompactProvenance | None = None
 
 
 class KnowledgeContextSection(BaseModel):

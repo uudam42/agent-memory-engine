@@ -109,6 +109,59 @@ class MemoryNodeORM(Base):
     last_retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retrieval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # Phase 15: source-validity lifecycle (Issue 1) — nullable, backward compatible.
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    validity_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    validity_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Phase 15 follow-up (Task 8): optional symbol-level evidence, nullable.
+    source_symbol: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # Issue 2 (scope-aware constraints): explicit scope for constraint-kind
+    # nodes. Nullable — legacy rows and non-constraint kinds leave this NULL;
+    # effective scope for legacy constraints is derived conservatively at
+    # read time (see memory_engine.services.constraint_scope), never
+    # defaulted to 'global' by the migration itself.
+    constraint_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Path reference used only for ConstraintScope.path eligibility checks.
+    # Deliberately separate from source_path/source_hash (Issue 1): setting
+    # this never subjects a constraint to SourceValidityService's hash/
+    # existence-drift checks, preserving the Phase 3A guarantee that
+    # constraint/procedure/decision candidates are never auto-bound to
+    # source_path for staleness detection.
+    constraint_scope_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # Issue 3 (source trust model): provenance-based trust lifecycle,
+    # nullable/additive — legacy rows read as SourceTrust.unknown (see
+    # memory_engine.services.source_trust.effective_trust), never as an
+    # authoritative default.
+    trust_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    trust_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    trust_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_trust: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Explicit human-elevation audit fields — only set by
+    # source_trust.apply_trust_transition when the transition raises trust.
+    trust_elevated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    trust_elevated_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    trust_elevated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Issue 4 (verification evidence levels): nullable/additive — legacy rows
+    # read as VerificationEvidenceLevel.unverified (see
+    # memory_engine.services.verification_evidence.effective_evidence_level),
+    # never as an independently-verified default. verification_evidence holds
+    # compact structured evidence only (never raw logs) as a JSON blob; the
+    # column name matches the domain-model field so MemoryNode.model_validate
+    # (from_attributes) maps it directly into a VerificationEvidence model.
+    evidence_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    verification_evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    evidence_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    evidence_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_evidence_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    evidence_elevated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    evidence_elevated_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    evidence_elevated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
         "MemoryNodeORM", remote_side="MemoryNodeORM.id", back_populates="children"
@@ -201,5 +254,21 @@ class MemoryCandidateORM(Base):
     # Phase 11: candidate expiry
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expiry_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # Phase 15 follow-up (Task 2): optional source evidence propagated from
+    # ReflectionSkill through to promotion, nullable/additive.
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_symbol: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # Issue 2: proposed scope for constraint-kind candidates (nullable).
+    proposed_constraint_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    proposed_constraint_scope_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # Issue 4: proposed verification-evidence level/data, propagated from
+    # ReflectionSkill through to promotion (nullable/additive). Column name
+    # matches CandidateCreate.proposed_verification_evidence for direct
+    # from_attributes mapping.
+    proposed_evidence_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    proposed_verification_evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="candidates")

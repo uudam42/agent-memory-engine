@@ -27,6 +27,15 @@ class RetrievalMeta(BaseModel):
     embedding_provider: str = "none"
     embedding_model: str = "none"
     semantic_status: str = "disabled"   # disabled | unavailable | used | degraded
+    # Issue 6: compact, non-identifying project marker — set once per
+    # response (envelope-level) rather than repeated on every retrieved
+    # memory. Never a raw absolute path or raw remote URL — see
+    # ProjectLocalStorage.short_repository_fingerprint.
+    repository_fingerprint: str | None = None
+    # Issue 6: project identifier, also envelope-level (a memory's own
+    # provenance never needs to restate which project it came from — every
+    # response is already scoped to exactly one project).
+    project_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +96,20 @@ class ReflectAndWriteInput(BaseModel):
     # Phase 14: optional workspace handshake (same semantics as RetrieveContextInput)
     workspace_root: str | None = None
     repository_fingerprint: str | None = None
+    # Issue 4: optional structured verification evidence and an explicit
+    # asserted evidence level. Omitted by legacy callers — verification_status
+    # alone continues to determine candidate confidence exactly as before,
+    # and internally now maps to VerificationEvidenceLevel.agent_claimed
+    # (never something stronger) unless this is supplied. asserted_evidence_level
+    # is only honored for engine_observed/external_observed when accompanied
+    # by evidence_target or evidence_external_ref — human_confirmed can never
+    # be set through this tool (only via an explicit elevation call).
+    asserted_evidence_level: str | None = None
+    evidence_target: str | None = None
+    evidence_exit_code: int | None = None
+    evidence_output_digest: str | None = None
+    evidence_observer: str | None = None
+    evidence_external_ref: str | None = None
 
 
 class SeedProjectInput(BaseModel):

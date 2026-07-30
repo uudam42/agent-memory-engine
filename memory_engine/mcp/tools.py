@@ -63,6 +63,22 @@ from memory_engine.skills.recall import RecallService
 _STRICT_WORKSPACE_ENV = "MEMORY_ENGINE_STRICT_WORKSPACE"
 
 
+def _bump_memory_revision(ctx: ProjectContext) -> None:
+    """Persist an increment to ProjectState.memory_revision.
+
+    Phase 15 follow-up (Task 5): passed into UnifiedContextRetrievalService as
+    a revision_hook so that a source-validity transition discovered *during*
+    retrieval (not just during reflect_and_write) also invalidates the
+    on-disk generation counter that participates in the retrieval cache key
+    (memory_generation — see knowledge/cache.py). Mirrors the existing bump
+    performed after reflect_and_write below.
+    """
+    state_mgr = ctx.get_state_manager()
+    state = state_mgr.load()
+    state.bump_memory()
+    state_mgr.save()
+
+
 def _validate_workspace(
     ctx: ProjectContext,
     workspace_root: str | None,
@@ -232,6 +248,12 @@ def tool_retrieve_agent_context(
             vector_index=ctx.get_vector_index(),
             cache=ctx.get_cache(),
             semantic_index=ctx.get_semantic_index(),
+            project_root=str(ctx.project_root),
+            # Task 5: bump the persisted memory_revision whenever a
+            # source-validity transition is discovered during retrieval
+            # (including the bounded cache-hit revalidation path), so the
+            # NEXT retrieval call's cache key reflects the change.
+            revision_hook=lambda: _bump_memory_revision(ctx),
         )
         pack = svc.retrieve(UnifiedRetrievalRequest(
             project_id=uuid.UUID(ctx.get_project_id()),
@@ -267,6 +289,10 @@ def tool_retrieve_agent_context(
             embedding_provider=mode_info.embedding_provider,
             embedding_model=mode_info.embedding_model,
             semantic_status=mode_info.semantic_status,
+            # Issue 6: compact provenance envelope info, set once per
+            # response rather than repeated per memory.
+            repository_fingerprint=ctx.storage.short_repository_fingerprint(),
+            project_id=ctx.get_project_id(),
         )
 
         return {
@@ -450,7 +476,11 @@ def tool_reflect_and_write(
 
     session = ctx.get_session()
     try:
-        svc = PostTaskService(session)
+        # Phase 15 follow-up (Task 2/4): thread the validated ProjectContext
+        # root through so source-backed candidates get real source_hash
+        # evidence at write time. This is the already-validated server root
+        # (ctx.project_root), never a raw caller-supplied path.
+        svc = PostTaskService(session, project_root=ctx.project_root)
         # Phase 11: honour explicit task_intent from the agent
         explicit_intent: TaskIntent | None = None
         if inp.task_intent:
@@ -458,6 +488,37 @@ def tool_reflect_and_write(
                 explicit_intent = TaskIntent(inp.task_intent)
             except ValueError:
                 explicit_intent = None
+
+        # Issue 4: optional structured verification evidence. Omitted by
+        # legacy callers — verification_status alone continues to drive
+        # candidate confidence as before; internally this now also derives a
+        # conservative VerificationEvidenceLevel (see
+        # memory_engine.services.verification_evidence). Git branch/commit
+        # already resolved above are reused here rather than making a fresh
+        # Git call.
+        verification_evidence = None
+        if any((
+            inp.evidence_target, inp.evidence_exit_code is not None,
+            inp.evidence_output_digest, inp.evidence_observer, inp.evidence_external_ref,
+        )):
+            from memory_engine.models.domain import VerificationEvidence
+            verification_evidence = VerificationEvidence(
+                target=inp.evidence_target,
+                exit_code=inp.evidence_exit_code,
+                output_digest=inp.evidence_output_digest,
+                observer=inp.evidence_observer,
+                external_ref=inp.evidence_external_ref,
+                source_branch=effective_branch,
+                source_commit=effective_commit,
+                working_tree_dirty=(git_ctx.working_tree_dirty if git_ctx.is_repository else None),
+            )
+        asserted_evidence_level = None
+        if inp.asserted_evidence_level:
+            from memory_engine.models.domain import VerificationEvidenceLevel
+            try:
+                asserted_evidence_level = VerificationEvidenceLevel(inp.asserted_evidence_level)
+            except ValueError:
+                asserted_evidence_level = None
 
         reflection_input = ReflectionInput(
             project_id=uuid.UUID(ctx.get_project_id()),
@@ -471,6 +532,8 @@ def tool_reflect_and_write(
             head_commit=effective_commit,
             branch_scope=branch_scope,
             task_intent=explicit_intent,
+            verification_evidence=verification_evidence,
+            asserted_evidence_level=asserted_evidence_level,
         )
         result = svc.reflect_and_write(reflection_input)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session, selectinload
 
-from memory_engine.models.orm import MemoryNodeORM
+from memory_engine.models.orm import MemoryNodeORM, _now
 
 
 class MemoryNodeRepository:
@@ -25,6 +25,14 @@ class MemoryNodeRepository:
         confidence: float = 1.0,
         importance: float = 0.5,
         module_path: str | None = None,
+        source_path: str | None = None,
+        source_hash: str | None = None,
+        source_symbol: str | None = None,
+        constraint_scope: str | None = None,
+        constraint_scope_ref: str | None = None,
+        trust_level: str | None = None,
+        evidence_level: str | None = None,
+        verification_evidence: dict | None = None,
     ) -> MemoryNodeORM:
         obj = MemoryNodeORM(
             project_id=project_id,
@@ -38,6 +46,14 @@ class MemoryNodeRepository:
             confidence=confidence,
             importance=importance,
             module_path=module_path,
+            source_path=source_path,
+            source_hash=source_hash,
+            source_symbol=source_symbol,
+            constraint_scope=constraint_scope,
+            constraint_scope_ref=constraint_scope_ref,
+            trust_level=trust_level,
+            evidence_level=evidence_level,
+            verification_evidence=verification_evidence,
         )
         self._s.add(obj)
         self._s.commit()
@@ -64,6 +80,105 @@ class MemoryNodeRepository:
             .order_by(MemoryNodeORM.depth, MemoryNodeORM.created_at)
             .all()
         )
+
+    def set_validity(
+        self,
+        node_id: str,
+        *,
+        new_status: str,
+        reason: str,
+        new_source_hash: str | None = None,
+        actor: str = "source_validity_service",
+    ) -> MemoryNodeORM | None:
+        """Auditable lifecycle transition applied by SourceValidityService.
+
+        Records previous_status before overwriting status, so the transition
+        is reconstructable later (Issue 1 revalidation-audit requirement).
+        Does not delete or otherwise touch the node's content.
+        """
+        obj = self._s.get(MemoryNodeORM, node_id)
+        if obj is None:
+            return None
+        obj.previous_status = obj.status
+        obj.status = new_status
+        obj.validity_reason = f"[{actor}] {reason}"
+        obj.validity_checked_at = _now()
+        if new_source_hash is not None:
+            obj.source_hash = new_source_hash
+        self._s.add(obj)
+        self._s.commit()
+        self._s.refresh(obj)
+        return obj
+
+    def set_trust(
+        self,
+        node_id: str,
+        *,
+        new_trust: str,
+        reason: str,
+        actor: str = "source_trust_service",
+        elevated: bool = False,
+    ) -> MemoryNodeORM | None:
+        """Auditable trust-level transition (Issue 3).
+
+        Follows the exact same convention as ``set_validity``: records the
+        previous trust level before overwriting, so the transition is
+        reconstructable later. ``elevated`` additionally stamps the
+        human-elevation audit fields — callers set it only when the
+        transition raises trust (see
+        ``memory_engine.services.source_trust.apply_trust_transition``).
+        Never deletes or otherwise touches the node's content.
+        """
+        obj = self._s.get(MemoryNodeORM, node_id)
+        if obj is None:
+            return None
+        obj.previous_trust = obj.trust_level
+        obj.trust_level = new_trust
+        obj.trust_reason = f"[{actor}] {reason}"
+        obj.trust_set_at = _now()
+        if elevated:
+            obj.trust_elevated_by = actor
+            obj.trust_elevated_reason = reason
+            obj.trust_elevated_at = _now()
+        self._s.add(obj)
+        self._s.commit()
+        self._s.refresh(obj)
+        return obj
+
+    def set_evidence_level(
+        self,
+        node_id: str,
+        *,
+        new_level: str,
+        reason: str,
+        actor: str = "verification_evidence_service",
+        elevated: bool = False,
+    ) -> MemoryNodeORM | None:
+        """Auditable verification-evidence-level transition (Issue 4).
+
+        Follows the exact same convention as ``set_trust``/``set_validity``:
+        records the previous level before overwriting, so the transition is
+        reconstructable later. ``elevated`` additionally stamps the
+        human-elevation audit fields — callers set it only when the
+        transition raises the level (see
+        ``memory_engine.services.verification_evidence.apply_verification_transition``).
+        Never deletes or otherwise touches the node's content.
+        """
+        obj = self._s.get(MemoryNodeORM, node_id)
+        if obj is None:
+            return None
+        obj.previous_evidence_level = obj.evidence_level
+        obj.evidence_level = new_level
+        obj.evidence_reason = f"[{actor}] {reason}"
+        obj.evidence_set_at = _now()
+        if elevated:
+            obj.evidence_elevated_by = actor
+            obj.evidence_elevated_reason = reason
+            obj.evidence_elevated_at = _now()
+        self._s.add(obj)
+        self._s.commit()
+        self._s.refresh(obj)
+        return obj
 
     def list_active_by_project(self, project_id: str) -> list[MemoryNodeORM]:
         return (
@@ -143,6 +258,9 @@ class MemoryNodeRepository:
         importance: float | None = None,
         tags: list[str] | None = None,
         status: str | None = None,
+        branch_name: str | None = None,
+        constraint_scope: str | None = None,
+        constraint_scope_ref: str | None = None,
     ) -> MemoryNodeORM | None:
         """Patch a subset of mutable fields."""
         obj = self.get_bare(node_id)
@@ -158,6 +276,12 @@ class MemoryNodeRepository:
             obj.tags = tags
         if status is not None:
             obj.status = status
+        if branch_name is not None:
+            obj.branch_name = branch_name
+        if constraint_scope is not None:
+            obj.constraint_scope = constraint_scope
+        if constraint_scope_ref is not None:
+            obj.constraint_scope_ref = constraint_scope_ref
         self._s.commit()
         self._s.refresh(obj)
         return obj
