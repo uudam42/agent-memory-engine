@@ -218,6 +218,22 @@ MIN_AUTHORITATIVE_TRUST = SourceTrust.reviewed_committed_design
 # a highly-sensitive `constraint` is the closest equivalent (Issue 3 spec).
 AUTHORITATIVE_KINDS = frozenset({"constraint", "architecture", "decision"})
 
+# Issue 6 — compact, human-readable display labels for SourceTrust/
+# VerificationEvidenceLevel values, shared by the structured provenance
+# builder (memory_engine.skills.composer) and the compact-text renderer
+# (EnrichedContextPack.as_text()) so the two forms never diverge. Purely
+# cosmetic — never used for eligibility decisions (SOURCE_TRUST_ORDER /
+# VERIFICATION_EVIDENCE_ORDER remain the single source of truth for that).
+TRUST_LABELS: dict[str, str] = {
+    SourceTrust.human_confirmed_policy.value: "human-confirmed-policy",
+    SourceTrust.reviewed_committed_design.value: "reviewed-design",
+    SourceTrust.committed_source_or_test.value: "committed-source",
+    SourceTrust.generated_report.value: "generated-report",
+    SourceTrust.diff_or_log.value: "diff-or-log",
+    SourceTrust.imported_or_external.value: "imported",
+    SourceTrust.unknown.value: "unknown",
+}
+
 
 class VerificationEvidenceLevel(StrEnum):
     """Issue 4 — how trustworthy is the *claim* that a task's outcome was
@@ -278,6 +294,15 @@ VERIFICATION_EVIDENCE_ORDER: dict[str, int] = {
     VerificationEvidenceLevel.external_observed.value: 2,
     VerificationEvidenceLevel.engine_observed.value: 3,
     VerificationEvidenceLevel.human_confirmed.value: 4,
+}
+
+# Issue 6 — compact display labels, mirroring TRUST_LABELS above.
+VERIFICATION_LABELS: dict[str, str] = {
+    VerificationEvidenceLevel.unverified.value: "unverified",
+    VerificationEvidenceLevel.agent_claimed.value: "agent-claimed",
+    VerificationEvidenceLevel.engine_observed.value: "engine-observed",
+    VerificationEvidenceLevel.external_observed.value: "external-observed",
+    VerificationEvidenceLevel.human_confirmed.value: "human-confirmed",
 }
 
 
@@ -658,6 +683,46 @@ class ConflictInfo(BaseModel):
     preferred_scope: str | None = None
     alternatives: list[ConflictAlternativeRef] = Field(default_factory=list)
     reason: str
+    # Issue 6: this memory's OWN role within the group (as opposed to
+    # ``alternatives[*].role``, which describes the OTHER members). Surfaces
+    # an already-computed value (``detect_conflicts``'s internal role_map)
+    # rather than making every consumer re-derive it from ``alternatives``.
+    # None only for pre-Issue-6 constructions that didn't set it.
+    own_role: Literal["preferred", "historical", "unresolved_peer"] | None = None
+
+
+class CompactProvenance(BaseModel):
+    """Issue 6 — compact, low-token provenance summary for one retrieved
+    memory, surfacing the end state of Issues 1-5's gates/checks without
+    recomputing any of them and without leaking sensitive paths/URLs.
+
+    Every field is optional and defaults to "not meaningful / not shown" so
+    the structured trace (``TraceEntry.provenance`` /
+    ``KnowledgeTraceEntry.provenance``) and the compact text renderer
+    (``EnrichedContextPack.as_text()``) can both consume the exact same
+    object without fabricating values for legacy nodes that never had
+    Issues 1-5's fields populated.
+
+    Never carries project-wide/envelope data (project id, repository
+    fingerprint) — that is represented once at the response/pack level
+    (``EnrichedContextPack.project`` / MCP ``RetrievalMeta``), not repeated
+    per item.
+    """
+
+    branch: str | None = None
+    source_path: str | None = None
+    source_symbol: str | None = None
+    source_revision: str | None = None       # short form (first ~8 chars)
+    status: str | None = None
+    validity_reason: str | None = None
+    constraint_scope: str | None = None
+    trust_level: str | None = None           # compact label, e.g. "committed-source"
+    verification_level: str | None = None    # compact label, e.g. "agent-claimed"
+    matched_by: list[str] = Field(default_factory=list)
+    historical: bool = False
+    authority: Literal["evidence-only", "non-authoritative"] | None = None
+    conflict_status: str | None = None       # e.g. "unresolved" | "current_branch_preferred"
+    conflict_alternatives_count: int = 0
 
 
 class TraceEntry(BaseModel):
@@ -674,6 +739,9 @@ class TraceEntry(BaseModel):
     # retrieval-time conflict. None for every pre-Issue-5 caller and every
     # non-conflicting memory — fully additive, never required.
     conflict: ConflictInfo | None = None
+    # Issue 6: compact provenance summary. None for every pre-Issue-6 caller
+    # (e.g. hand-built TraceEntry objects in older tests) — fully additive.
+    provenance: CompactProvenance | None = None
 
 
 class ScoredMemory(BaseModel):
@@ -699,6 +767,57 @@ def _is_low_trust_authoritative(node: MemoryNode) -> bool:
     return rank < SOURCE_TRUST_ORDER[MIN_AUTHORITATIVE_TRUST.value]
 
 
+def _provenance_lines(prov: CompactProvenance | None, node: MemoryNode) -> list[str]:
+    """Issue 6 — render ``prov`` as a small number of compact, indented
+    lines matching ``EnrichedContextPack.as_text()``'s existing style.
+
+    Returns an empty list (no output change at all) when ``prov`` is None —
+    this is what makes as_text() byte-identical to its pre-Issue-6 output
+    for any pack that doesn't populate ``EnrichedContextPack.provenance``
+    (e.g. composer-only tests, hand-built packs). Only genuinely
+    non-default/meaningful fields are emitted, per Issue 6's token-budget
+    rule; ``trust`` is scoped to AUTHORITATIVE_KINDS only, mirroring Issue
+    3's existing UNTRUSTED_REPOSITORY_CONTENT marker scoping.
+    """
+    if prov is None:
+        return []
+    lines: list[str] = []
+    if prov.historical:
+        lines.append("    scope: mainline-fallback")
+    if prov.source_path:
+        src = prov.source_path
+        if prov.source_revision:
+            src = f"{src}@{prov.source_revision}"
+        lines.append(f"    source: {src}")
+    if prov.status and prov.status != "active":
+        lines.append(f"    status: {prov.status}")
+    if prov.validity_reason:
+        lines.append(f"    validity_reason: {prov.validity_reason}")
+    if prov.constraint_scope:
+        lines.append(f"    constraint_scope: {prov.constraint_scope}")
+    kind_value = node.kind.value if hasattr(node.kind, "value") else str(node.kind)
+    if prov.trust_level and kind_value in AUTHORITATIVE_KINDS:
+        lines.append(f"    trust: {prov.trust_level}")
+    if prov.verification_level and prov.verification_level != "unverified":
+        lines.append(f"    verification: {prov.verification_level}")
+    if prov.matched_by:
+        lines.append(f"    matched_by: {','.join(prov.matched_by)}")
+    # Note: "authority: evidence-only" is already emitted above alongside
+    # UNTRUSTED_REPOSITORY_CONTENT when _is_low_trust_authoritative(node) is
+    # True — never duplicated here.
+    if prov.authority == "non-authoritative":
+        lines.append("    authority: non-authoritative")
+    if prov.conflict_status:
+        if prov.conflict_status == ConflictResolutionStatus.current_branch_preferred.value:
+            lines.append(
+                f"    conflict: {prov.conflict_status} "
+                f"(alternatives: {prov.conflict_alternatives_count})"
+            )
+        else:
+            lines.append(f"    conflict: {prov.conflict_status}")
+    return lines
+
+
 class EnrichedContextPack(BaseModel):
     project: Project
     constraints: list[MemoryNode] = Field(default_factory=list)
@@ -710,6 +829,11 @@ class EnrichedContextPack(BaseModel):
     evidence_refs: list[Evidence] = Field(default_factory=list)
     total_nodes: int = 0
     token_estimate: int = 0
+    # Issue 6: compact provenance per selected memory, keyed by str(node.id).
+    # Empty for every pre-Issue-6 caller (composer-only tests, hand-built
+    # packs) — as_text() degrades gracefully to the exact pre-Issue-6 output
+    # when a node has no entry here (see _section below).
+    provenance: dict[str, CompactProvenance] = Field(default_factory=dict)
 
     def as_text(self) -> str:
         lines: list[str] = [f"# Memory Context — {self.project.name}", ""]
@@ -726,6 +850,7 @@ class EnrichedContextPack(BaseModel):
                     # but must not be read as an authoritative instruction.
                     lines.append("    UNTRUSTED_REPOSITORY_CONTENT")
                     lines.append("    authority: evidence-only")
+                lines.extend(_provenance_lines(self.provenance.get(str(n.id)), n))
                 lines.append(f"    {n.summary}")
             lines.append("")
 

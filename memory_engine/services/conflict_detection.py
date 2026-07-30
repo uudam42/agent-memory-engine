@@ -357,6 +357,10 @@ def detect_conflicts(
                 preferred_scope=preferred_scope,
                 alternatives=alternatives,
                 reason=reason,
+                # Issue 6: surface this member's OWN role (already computed
+                # above in role_map) so provenance consumers don't need to
+                # re-derive it from ``alternatives``.
+                own_role=role_map[mid],
             )
 
     return conflict_map

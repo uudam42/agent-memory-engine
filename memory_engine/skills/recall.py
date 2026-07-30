@@ -41,7 +41,7 @@ from memory_engine.services.constraint_scope import constraint_is_eligible
 from memory_engine.services.conflict_detection import detect_conflicts
 from memory_engine.services.memory_service import ProjectNotFoundError
 from memory_engine.services.source_validity import SourceValidityService
-from memory_engine.skills.composer import ContextComposer
+from memory_engine.skills.composer import ContextComposer, build_provenance
 from memory_engine.skills.query_analyzer import DeterministicQueryAnalyzer, QueryAnalyzerProtocol
 from memory_engine.skills.ranker import DeterministicRanker
 from memory_engine.skills.router import SkillRouter
@@ -344,6 +344,7 @@ class RecallService:
             routing_plan=routing_plan,
             include_evidence=expand_evidence,
             token_budget=budget,
+            current_branch=request.current_branch,
         )
 
         # -- Issue 5: explicit conflict detection -----------------------------
@@ -369,7 +370,17 @@ class RecallService:
             if conflict_map:
                 for entry in trace:
                     if entry.action == "selected" and entry.memory_id in conflict_map:
-                        entry.conflict = conflict_map[entry.memory_id]
+                        info = conflict_map[entry.memory_id]
+                        entry.conflict = info
+                        # Issue 6: fold the already-computed conflict outcome
+                        # into the same CompactProvenance instance referenced
+                        # by pack.provenance[entry.memory_id] (composer built
+                        # both from the same object) — no recomputation, no
+                        # separate write path to keep in sync.
+                        if entry.provenance is not None:
+                            entry.provenance.conflict_status = info.resolution_status.value
+                            entry.provenance.conflict_alternatives_count = len(info.alternatives)
+                            entry.provenance.historical = info.own_role == "historical"
 
         # Append gate-excluded nodes to trace so the caller can see why they
         # were dropped (matches existing composer trace contract).
@@ -392,6 +403,9 @@ class RecallService:
                 score_breakdown=s.score_breakdown,
                 status=s.node.status.value,
                 tree_path=tree_path,
+                provenance=build_provenance(
+                    s.node, s.score_breakdown, current_branch=request.current_branch
+                ),
             ))
 
         return RecallResult(
