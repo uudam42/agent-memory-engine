@@ -52,3 +52,23 @@ class RelationRepository:
             )
             .all()
         )
+
+    def list_by_node_ids(self, node_ids: list[str]) -> list[MemoryRelationORM]:
+        """Relations where BOTH endpoints are in ``node_ids``.
+
+        Bounded lookup for retrieval-time conflict detection (Issue 5):
+        ``node_ids`` is expected to be the already-small set of candidates
+        that passed every prior recall gate, so this is a single query
+        with two ``IN`` clauses — never a full-table scan and never O(n^2)
+        over project memory.
+        """
+        if not node_ids:
+            return []
+        return (
+            self._s.query(MemoryRelationORM)
+            .filter(
+                MemoryRelationORM.source_id.in_(node_ids),
+                MemoryRelationORM.target_id.in_(node_ids),
+            )
+            .all()
+        )

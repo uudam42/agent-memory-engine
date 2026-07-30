@@ -595,6 +595,71 @@ class RecallRequest(BaseModel):
     current_branch: str | None = None
 
 
+class ConflictResolutionStatus(StrEnum):
+    """Issue 5 — how a retrieval-time conflict between two or more
+    otherwise-authoritative candidates was resolved for the current
+    request.
+
+    Distinct from ``ConflictKind`` (Phase 3, write-time promotion
+    dedup/contradiction handling) — this vocabulary describes a
+    *retrieval-time*, per-request classification that is never persisted
+    to the database; it is recomputed from already-loaded candidate
+    fields on every ``recall()`` call (see
+    ``memory_engine.services.conflict_detection``).
+
+      unresolved                — no branch-preference signal or explicit
+                                   relation could decide between members;
+                                   score must never silently break the
+                                   tie. The composer/agent must not treat
+                                   either member as sole agreed fact.
+      current_branch_preferred  — exactly one member matches the
+                                   request's ``current_branch`` and every
+                                   other member is mainline/global/base-
+                                   branch scoped — the current-branch
+                                   member is operationally preferred, the
+                                   rest are labeled historical/fallback.
+    """
+
+    unresolved = "unresolved"
+    current_branch_preferred = "current_branch_preferred"
+
+
+class ConflictAlternativeRef(BaseModel):
+    """Compact reference to one OTHER member of a conflict group.
+
+    Deliberately never a duplicated full memory body (Issue 5 rule:
+    alternatives are compact references — id/title/branch — not full
+    duplicated content).
+    """
+
+    memory_id: str
+    title: str
+    branch_name: str | None = None
+    role: Literal["preferred", "historical", "unresolved_peer"] = "unresolved_peer"
+
+
+class ConflictInfo(BaseModel):
+    """Issue 5 — compact, structured conflict metadata attached to a
+    ``TraceEntry`` for a memory that participates in an active,
+    retrieval-time conflict (a candidate that already passed source
+    validity / scope / relevance / trust gates but shares an identity
+    signal — or an explicit ``contradicts``/``supersedes`` relation —
+    with another qualifying candidate).
+
+    ``conflict_group_id`` is derived deterministically from the sorted
+    set of member memory ids (a stable hash) — never a random UUID — so
+    repeated ``recall()`` calls over the same underlying data produce the
+    same id and tests can assert on it.
+    """
+
+    conflict: bool = True
+    conflict_group_id: str
+    resolution_status: ConflictResolutionStatus
+    preferred_scope: str | None = None
+    alternatives: list[ConflictAlternativeRef] = Field(default_factory=list)
+    reason: str
+
+
 class TraceEntry(BaseModel):
     memory_id: str
     title: str
@@ -605,6 +670,10 @@ class TraceEntry(BaseModel):
     score_breakdown: dict[str, float] = Field(default_factory=dict)
     status: str = "unknown"
     tree_path: list[str] = Field(default_factory=list)
+    # Issue 5: populated only when this memory participates in an active,
+    # retrieval-time conflict. None for every pre-Issue-5 caller and every
+    # non-conflicting memory — fully additive, never required.
+    conflict: ConflictInfo | None = None
 
 
 class ScoredMemory(BaseModel):
