@@ -132,6 +132,20 @@ class MemoryNodeORM(Base):
     # source_path for staleness detection.
     constraint_scope_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
+    # Issue 3 (source trust model): provenance-based trust lifecycle,
+    # nullable/additive — legacy rows read as SourceTrust.unknown (see
+    # memory_engine.services.source_trust.effective_trust), never as an
+    # authoritative default.
+    trust_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    trust_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    trust_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_trust: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Explicit human-elevation audit fields — only set by
+    # source_trust.apply_trust_transition when the transition raises trust.
+    trust_elevated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    trust_elevated_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    trust_elevated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
         "MemoryNodeORM", remote_side="MemoryNodeORM.id", back_populates="children"

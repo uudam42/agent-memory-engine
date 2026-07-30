@@ -17,6 +17,12 @@ Phase 15 addition (Issue 1 — automatic stale-memory detection):
   memory_nodes.(source_path, source_hash, validity_reason,
   validity_checked_at, previous_status). All nullable — legacy nodes with
   no source_path are never touched by SourceValidityService.
+
+Issue 3 addition (source trust model):
+  memory_nodes.(trust_level, trust_reason, trust_set_at, previous_trust,
+  trust_elevated_by, trust_elevated_reason, trust_elevated_at). All nullable
+  — legacy nodes with no trust_level read as SourceTrust.unknown and never
+  satisfy an authority threshold (see memory_engine.services.source_trust).
 """
 
 from sqlalchemy import text
@@ -85,6 +91,16 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("memory_nodes", "constraint_scope_ref", "VARCHAR(1024)"),
     ("memory_candidates", "proposed_constraint_scope", "VARCHAR(32)"),
     ("memory_candidates", "proposed_constraint_scope_ref", "VARCHAR(1024)"),
+    # Issue 3 (source trust model): provenance-based trust lifecycle, no
+    # DEFAULT — legacy rows get NULL, read as SourceTrust.unknown at the
+    # domain layer (never silently promoted to an authoritative trust level).
+    ("memory_nodes", "trust_level", "VARCHAR(32)"),
+    ("memory_nodes", "trust_reason", "VARCHAR(512)"),
+    ("memory_nodes", "trust_set_at", "DATETIME"),
+    ("memory_nodes", "previous_trust", "VARCHAR(32)"),
+    ("memory_nodes", "trust_elevated_by", "VARCHAR(128)"),
+    ("memory_nodes", "trust_elevated_reason", "VARCHAR(512)"),
+    ("memory_nodes", "trust_elevated_at", "DATETIME"),
 ]
 
 

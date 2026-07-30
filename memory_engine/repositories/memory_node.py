@@ -30,6 +30,7 @@ class MemoryNodeRepository:
         source_symbol: str | None = None,
         constraint_scope: str | None = None,
         constraint_scope_ref: str | None = None,
+        trust_level: str | None = None,
     ) -> MemoryNodeORM:
         obj = MemoryNodeORM(
             project_id=project_id,
@@ -48,6 +49,7 @@ class MemoryNodeRepository:
             source_symbol=source_symbol,
             constraint_scope=constraint_scope,
             constraint_scope_ref=constraint_scope_ref,
+            trust_level=trust_level,
         )
         self._s.add(obj)
         self._s.commit()
@@ -99,6 +101,41 @@ class MemoryNodeRepository:
         obj.validity_checked_at = _now()
         if new_source_hash is not None:
             obj.source_hash = new_source_hash
+        self._s.add(obj)
+        self._s.commit()
+        self._s.refresh(obj)
+        return obj
+
+    def set_trust(
+        self,
+        node_id: str,
+        *,
+        new_trust: str,
+        reason: str,
+        actor: str = "source_trust_service",
+        elevated: bool = False,
+    ) -> MemoryNodeORM | None:
+        """Auditable trust-level transition (Issue 3).
+
+        Follows the exact same convention as ``set_validity``: records the
+        previous trust level before overwriting, so the transition is
+        reconstructable later. ``elevated`` additionally stamps the
+        human-elevation audit fields — callers set it only when the
+        transition raises trust (see
+        ``memory_engine.services.source_trust.apply_trust_transition``).
+        Never deletes or otherwise touches the node's content.
+        """
+        obj = self._s.get(MemoryNodeORM, node_id)
+        if obj is None:
+            return None
+        obj.previous_trust = obj.trust_level
+        obj.trust_level = new_trust
+        obj.trust_reason = f"[{actor}] {reason}"
+        obj.trust_set_at = _now()
+        if elevated:
+            obj.trust_elevated_by = actor
+            obj.trust_elevated_reason = reason
+            obj.trust_elevated_at = _now()
         self._s.add(obj)
         self._s.commit()
         self._s.refresh(obj)
