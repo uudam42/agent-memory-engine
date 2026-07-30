@@ -20,6 +20,8 @@ Trimming order when budget is exceeded:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from memory_engine.models.domain import (
     AUTHORITATIVE_KINDS,
     CompactProvenance,
@@ -169,7 +171,7 @@ def build_provenance(
         "unverified",
     )
 
-    authority: str | None = None
+    authority: Literal["evidence-only", "non-authoritative"] | None = None
     if status_value in {s.value for s in _NON_AUTHORITATIVE_PROVENANCE_STATUSES}:
         authority = "non-authoritative"
     elif kind_value in AUTHORITATIVE_KINDS and is_low_trust(node):

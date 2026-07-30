@@ -84,7 +84,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from memory_engine.models.domain import (
     AUTHORITATIVE_KINDS,
@@ -325,6 +325,7 @@ def detect_conflicts(
         mainline_ids = [i for i in ids if classes[i] == "mainline_or_global"]
         other_ids = [i for i in ids if classes[i] == "other"]
 
+        role_map: dict[str, Literal["preferred", "historical", "unresolved_peer"]]
         if (
             len(current_ids) == 1
             and len(mainline_ids) >= 1
