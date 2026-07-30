@@ -30,6 +30,8 @@ class CandidateRepository:
         source_symbol: str | None = None,
         proposed_constraint_scope: str | None = None,
         proposed_constraint_scope_ref: str | None = None,
+        proposed_evidence_level: str | None = None,
+        proposed_verification_evidence: dict | None = None,
     ) -> MemoryCandidateORM:
         obj = MemoryCandidateORM(
             project_id=project_id,
@@ -48,6 +50,8 @@ class CandidateRepository:
             source_symbol=source_symbol,
             proposed_constraint_scope=proposed_constraint_scope,
             proposed_constraint_scope_ref=proposed_constraint_scope_ref,
+            proposed_evidence_level=proposed_evidence_level,
+            proposed_verification_evidence=proposed_verification_evidence,
             status="pending",
         )
         self._s.add(obj)

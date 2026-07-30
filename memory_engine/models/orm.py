@@ -146,6 +146,22 @@ class MemoryNodeORM(Base):
     trust_elevated_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
     trust_elevated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Issue 4 (verification evidence levels): nullable/additive — legacy rows
+    # read as VerificationEvidenceLevel.unverified (see
+    # memory_engine.services.verification_evidence.effective_evidence_level),
+    # never as an independently-verified default. verification_evidence holds
+    # compact structured evidence only (never raw logs) as a JSON blob; the
+    # column name matches the domain-model field so MemoryNode.model_validate
+    # (from_attributes) maps it directly into a VerificationEvidence model.
+    evidence_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    verification_evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    evidence_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    evidence_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    previous_evidence_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    evidence_elevated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    evidence_elevated_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    evidence_elevated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="memory_nodes")
     parent: Mapped[MemoryNodeORM | None] = relationship(
         "MemoryNodeORM", remote_side="MemoryNodeORM.id", back_populates="children"
@@ -247,5 +263,12 @@ class MemoryCandidateORM(Base):
     # Issue 2: proposed scope for constraint-kind candidates (nullable).
     proposed_constraint_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
     proposed_constraint_scope_ref: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # Issue 4: proposed verification-evidence level/data, propagated from
+    # ReflectionSkill through to promotion (nullable/additive). Column name
+    # matches CandidateCreate.proposed_verification_evidence for direct
+    # from_attributes mapping.
+    proposed_evidence_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    proposed_verification_evidence: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped[ProjectORM] = relationship("ProjectORM", back_populates="candidates")

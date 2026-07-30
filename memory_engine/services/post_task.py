@@ -105,6 +105,12 @@ class PostTaskService:
                 source_symbol=candidate_data.source_symbol,
                 proposed_constraint_scope=candidate_data.proposed_constraint_scope,
                 proposed_constraint_scope_ref=candidate_data.proposed_constraint_scope_ref,
+                proposed_evidence_level=candidate_data.proposed_evidence_level,
+                proposed_verification_evidence=(
+                    candidate_data.proposed_verification_evidence.model_dump(mode="json")
+                    if candidate_data.proposed_verification_evidence is not None
+                    else None
+                ),
             )
 
             # b) Promote immediately (single pipeline call)

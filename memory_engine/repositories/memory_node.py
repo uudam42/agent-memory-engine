@@ -31,6 +31,8 @@ class MemoryNodeRepository:
         constraint_scope: str | None = None,
         constraint_scope_ref: str | None = None,
         trust_level: str | None = None,
+        evidence_level: str | None = None,
+        verification_evidence: dict | None = None,
     ) -> MemoryNodeORM:
         obj = MemoryNodeORM(
             project_id=project_id,
@@ -50,6 +52,8 @@ class MemoryNodeRepository:
             constraint_scope=constraint_scope,
             constraint_scope_ref=constraint_scope_ref,
             trust_level=trust_level,
+            evidence_level=evidence_level,
+            verification_evidence=verification_evidence,
         )
         self._s.add(obj)
         self._s.commit()
@@ -136,6 +140,41 @@ class MemoryNodeRepository:
             obj.trust_elevated_by = actor
             obj.trust_elevated_reason = reason
             obj.trust_elevated_at = _now()
+        self._s.add(obj)
+        self._s.commit()
+        self._s.refresh(obj)
+        return obj
+
+    def set_evidence_level(
+        self,
+        node_id: str,
+        *,
+        new_level: str,
+        reason: str,
+        actor: str = "verification_evidence_service",
+        elevated: bool = False,
+    ) -> MemoryNodeORM | None:
+        """Auditable verification-evidence-level transition (Issue 4).
+
+        Follows the exact same convention as ``set_trust``/``set_validity``:
+        records the previous level before overwriting, so the transition is
+        reconstructable later. ``elevated`` additionally stamps the
+        human-elevation audit fields — callers set it only when the
+        transition raises the level (see
+        ``memory_engine.services.verification_evidence.apply_verification_transition``).
+        Never deletes or otherwise touches the node's content.
+        """
+        obj = self._s.get(MemoryNodeORM, node_id)
+        if obj is None:
+            return None
+        obj.previous_evidence_level = obj.evidence_level
+        obj.evidence_level = new_level
+        obj.evidence_reason = f"[{actor}] {reason}"
+        obj.evidence_set_at = _now()
+        if elevated:
+            obj.evidence_elevated_by = actor
+            obj.evidence_elevated_reason = reason
+            obj.evidence_elevated_at = _now()
         self._s.add(obj)
         self._s.commit()
         self._s.refresh(obj)

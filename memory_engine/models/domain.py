@@ -219,6 +219,90 @@ MIN_AUTHORITATIVE_TRUST = SourceTrust.reviewed_committed_design
 AUTHORITATIVE_KINDS = frozenset({"constraint", "architecture", "decision"})
 
 
+class VerificationEvidenceLevel(StrEnum):
+    """Issue 4 — how trustworthy is the *claim* that a task's outcome was
+    verified (tests passed / build succeeded / etc.)?
+
+    This is a different axis from ``VerificationStatus`` (what kind of check
+    was claimed to have run: tests / build / manual / none) and from
+    ``SourceTrust`` (where a memory's *content* came from). This enum
+    answers: who or what actually observed the verification evidence, and
+    how much should that observation be trusted?
+
+      unverified         — no verification claim at all. Lowest.
+      agent_claimed       — an agent asserted success with no structured,
+                             independently-checkable evidence attached. This
+                             is what legacy ``VerificationStatus.tests_passed``/
+                             ``build_success``/``manual_check`` values map to
+                             by default (see
+                             ``memory_engine.services.verification_evidence``)
+                             — an agent's self-report is not proof.
+      engine_observed     — Memory Engine itself observed structured evidence
+                             via a trusted, first-party execution path (e.g.
+                             it ran the test command and captured the exit
+                             code itself). No such execution path exists in
+                             this codebase today (Issue 4 explicitly forbids
+                             adding one — see module docstring on
+                             ``verification_evidence.py``), so this level is
+                             documented as currently unreachable in
+                             production, exactly like Issue 3's
+                             ``human_confirmed_policy`` before an explicit
+                             elevation call is made.
+      external_observed   — structured evidence supplied by an external
+                             system (e.g. a CI run), not directly executed by
+                             Memory Engine, but carrying an external
+                             reference (CI run URL/ID) making it
+                             independently checkable.
+      human_confirmed     — a human explicitly confirmed the verification.
+                             Only reachable via an explicit, auditable
+                             elevation call (mirrors Issue 3's
+                             ``apply_trust_transition``) — never
+                             automatically inferred. Highest.
+
+    Ordering (lowest to highest authority) is captured in
+    ``VERIFICATION_EVIDENCE_ORDER`` below.
+    """
+
+    unverified = "unverified"
+    agent_claimed = "agent_claimed"
+    engine_observed = "engine_observed"
+    external_observed = "external_observed"
+    human_confirmed = "human_confirmed"
+
+
+# Ordinal ranking (higher = more trustworthy evidence), mirroring
+# SOURCE_TRUST_ORDER's single-source-of-truth convention.
+VERIFICATION_EVIDENCE_ORDER: dict[str, int] = {
+    VerificationEvidenceLevel.unverified.value: 0,
+    VerificationEvidenceLevel.agent_claimed.value: 1,
+    VerificationEvidenceLevel.external_observed.value: 2,
+    VerificationEvidenceLevel.engine_observed.value: 3,
+    VerificationEvidenceLevel.human_confirmed.value: 4,
+}
+
+
+class VerificationEvidence(BaseModel):
+    """Issue 4 — compact, structured evidence supporting a verification
+    claim. Never raw logs (rule: do not store large raw logs by default) —
+    only small, comparable fields.
+
+    All fields optional; a caller supplies whichever it actually has. Never
+    invented/guessed by the system — absence of a field simply means that
+    signal was not available.
+    """
+
+    target: str | None = None                 # e.g. "pytest tests/"
+    exit_code: int | None = None
+    observed_at: datetime | None = None
+    output_digest: str | None = None           # short hash, NOT raw output
+    source_commit: str | None = None           # reuse Phase 9 branch-awareness
+    source_branch: str | None = None
+    working_tree_dirty: bool | None = None     # reuse Phase 9 GitContext concept
+    changed_file_digest: str | None = None
+    observer: str | None = None                # "agent", "ci:github-actions", a username
+    external_ref: str | None = None            # CI run URL/ID, optional
+
+
 class TaskComplexity(StrEnum):
     trivial = "trivial"
     low = "low"
@@ -353,6 +437,15 @@ class MemoryNodeCreate(MemoryNodeBase):
     # memory_engine.services.source_trust.assign_creation_trust) — direct
     # callers (tests, API) may also set this explicitly.
     trust_level: str | None = None
+    # Issue 4: explicit verification-evidence level. None means "let the
+    # creating service assign the conservative default" (see
+    # memory_engine.services.verification_evidence.assign_creation_evidence_level)
+    # — direct callers (tests, API) may also set this explicitly, but only
+    # engine_observed/external_observed are honored without an explicit
+    # elevation call; human_confirmed set here is not trusted (creation is
+    # never a sanctioned path to human_confirmed).
+    evidence_level: str | None = None
+    verification_evidence: VerificationEvidence | None = None
 
 
 class MemoryNode(MemoryNodeBase):
@@ -400,6 +493,20 @@ class MemoryNode(MemoryNodeBase):
     trust_elevated_by: str | None = None
     trust_elevated_reason: str | None = None
     trust_elevated_at: datetime | None = None
+
+    # Issue 4: verification-evidence lifecycle — nullable, backward
+    # compatible. A node with evidence_level=None is read as
+    # VerificationEvidenceLevel.unverified (see
+    # memory_engine.services.verification_evidence.effective_evidence_level)
+    # — legacy rows never silently gain verification authority.
+    evidence_level: str | None = None
+    verification_evidence: VerificationEvidence | None = None
+    evidence_reason: str | None = None
+    evidence_set_at: datetime | None = None
+    previous_evidence_level: str | None = None
+    evidence_elevated_by: str | None = None
+    evidence_elevated_reason: str | None = None
+    evidence_elevated_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -641,6 +748,10 @@ class CandidateCreate(BaseModel):
     # from proposed_kind == constraint.
     proposed_constraint_scope: str | None = None
     proposed_constraint_scope_ref: str | None = None
+    # Issue 4: verification-evidence level/data proposed for the resulting
+    # node, derived conservatively by ReflectionSkill (never invented).
+    proposed_evidence_level: str | None = None
+    proposed_verification_evidence: VerificationEvidence | None = None
 
 
 class PersistedCandidate(CandidateCreate):
@@ -802,6 +913,17 @@ class ReflectionInput(BaseModel):
     branch_scope: str | None = None   # current_branch | mainline | global
     module_path: str | None = None        # primary affected module (dotted path)
     task_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    # Issue 4: optional structured verification evidence and an explicit
+    # asserted level. Legacy callers omit both and continue to work exactly
+    # as before — verification_status alone still determines candidate
+    # confidence (unchanged), while evidence_level is derived conservatively
+    # (see memory_engine.services.verification_evidence). asserted_level is
+    # only honored for engine_observed/external_observed when accompanied by
+    # matching structured evidence; human_confirmed is never honored here
+    # (only reachable via an explicit elevation call after creation).
+    verification_evidence: VerificationEvidence | None = None
+    asserted_evidence_level: VerificationEvidenceLevel | None = None
 
 
 class ReflectionAnalysis(BaseModel):

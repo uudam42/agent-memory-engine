@@ -194,6 +194,41 @@ class PromotionService:
         self._invalidate_cache(str(result.project_id))
         return result
 
+    def set_evidence_level(
+        self, node_id: str, *, new_level: str, actor: str, reason: str
+    ) -> MemoryNode:
+        """Explicitly elevate or downgrade a node's verification-evidence
+        level (Issue 4).
+
+        The only sanctioned path to raising a node's verification-evidence
+        level to ``VerificationEvidenceLevel.human_confirmed`` — callable
+        from CLI/API by a human or an explicit review process, never
+        automatically from an agent's claim. Mirrors ``set_trust`` exactly,
+        including cache invalidation so a subsequent recall immediately
+        reflects the new level.
+        """
+        from memory_engine.models.domain import VerificationEvidenceLevel
+        from memory_engine.services.verification_evidence import (
+            apply_verification_transition,
+        )
+
+        orm = self._nodes.get_bare(node_id)
+        if orm is None:
+            from memory_engine.services.memory_service import MemoryNodeNotFoundError
+            raise MemoryNodeNotFoundError(node_id)
+
+        node = MemoryNode.model_validate(orm)
+        updated = apply_verification_transition(
+            self._nodes,
+            node,
+            new_level=VerificationEvidenceLevel(new_level),
+            actor=actor,
+            reason=reason,
+        )
+        result = updated if updated is not None else node
+        self._invalidate_cache(str(result.project_id))
+        return result
+
     def _invalidate_cache(self, project_id: str) -> None:
         """Invalidate the unified-context cache for the given project.
 
@@ -477,6 +512,17 @@ class PromotionService:
             kind=candidate.proposed_kind, source_path=source_path
         ).value
 
+        # Issue 4: propagate the verification-evidence level/data ReflectionSkill
+        # already derived conservatively onto the created node. None on
+        # candidates created via any other path (e.g. direct MemoryService
+        # callers) — legacy behavior is unaffected.
+        evidence_level = candidate.proposed_evidence_level
+        verification_evidence = (
+            candidate.proposed_verification_evidence.model_dump(mode="json")
+            if candidate.proposed_verification_evidence is not None
+            else None
+        )
+
         orm = self._nodes.create(
             project_id=str(candidate.project_id),
             parent_id=str(placement.parent_id) if placement.parent_id else None,
@@ -495,6 +541,8 @@ class PromotionService:
             constraint_scope=candidate.proposed_constraint_scope,
             constraint_scope_ref=candidate.proposed_constraint_scope_ref,
             trust_level=trust_level,
+            evidence_level=evidence_level,
+            verification_evidence=verification_evidence,
         )
         return MemoryNode.model_validate(orm)
 

@@ -87,6 +87,20 @@ class ReflectAndWriteInput(BaseModel):
     # Phase 14: optional workspace handshake (same semantics as RetrieveContextInput)
     workspace_root: str | None = None
     repository_fingerprint: str | None = None
+    # Issue 4: optional structured verification evidence and an explicit
+    # asserted evidence level. Omitted by legacy callers — verification_status
+    # alone continues to determine candidate confidence exactly as before,
+    # and internally now maps to VerificationEvidenceLevel.agent_claimed
+    # (never something stronger) unless this is supplied. asserted_evidence_level
+    # is only honored for engine_observed/external_observed when accompanied
+    # by evidence_target or evidence_external_ref — human_confirmed can never
+    # be set through this tool (only via an explicit elevation call).
+    asserted_evidence_level: str | None = None
+    evidence_target: str | None = None
+    evidence_exit_code: int | None = None
+    evidence_output_digest: str | None = None
+    evidence_observer: str | None = None
+    evidence_external_ref: str | None = None
 
 
 class SeedProjectInput(BaseModel):

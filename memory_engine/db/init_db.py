@@ -23,6 +23,15 @@ Issue 3 addition (source trust model):
   trust_elevated_by, trust_elevated_reason, trust_elevated_at). All nullable
   — legacy nodes with no trust_level read as SourceTrust.unknown and never
   satisfy an authority threshold (see memory_engine.services.source_trust).
+
+Issue 4 addition (verification evidence levels):
+  memory_nodes.(evidence_level, verification_evidence, evidence_reason,
+  evidence_set_at, previous_evidence_level, evidence_elevated_by,
+  evidence_elevated_reason, evidence_elevated_at) and
+  memory_candidates.(proposed_evidence_level, proposed_verification_evidence).
+  All nullable — legacy rows with no evidence_level read as
+  VerificationEvidenceLevel.unverified (see
+  memory_engine.services.verification_evidence).
 """
 
 from sqlalchemy import text
@@ -101,6 +110,19 @@ _BRANCH_COLUMNS: list[tuple[str, str, str]] = [
     ("memory_nodes", "trust_elevated_by", "VARCHAR(128)"),
     ("memory_nodes", "trust_elevated_reason", "VARCHAR(512)"),
     ("memory_nodes", "trust_elevated_at", "DATETIME"),
+    # Issue 4 (verification evidence levels): nullable, additive — legacy
+    # rows get NULL, read as VerificationEvidenceLevel.unverified at the
+    # domain layer (never silently promoted to a verified default).
+    ("memory_nodes", "evidence_level", "VARCHAR(32)"),
+    ("memory_nodes", "verification_evidence", "TEXT"),
+    ("memory_nodes", "evidence_reason", "VARCHAR(512)"),
+    ("memory_nodes", "evidence_set_at", "DATETIME"),
+    ("memory_nodes", "previous_evidence_level", "VARCHAR(32)"),
+    ("memory_nodes", "evidence_elevated_by", "VARCHAR(128)"),
+    ("memory_nodes", "evidence_elevated_reason", "VARCHAR(512)"),
+    ("memory_nodes", "evidence_elevated_at", "DATETIME"),
+    ("memory_candidates", "proposed_evidence_level", "VARCHAR(32)"),
+    ("memory_candidates", "proposed_verification_evidence", "TEXT"),
 ]
 
 

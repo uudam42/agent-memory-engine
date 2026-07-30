@@ -485,6 +485,37 @@ def tool_reflect_and_write(
             except ValueError:
                 explicit_intent = None
 
+        # Issue 4: optional structured verification evidence. Omitted by
+        # legacy callers — verification_status alone continues to drive
+        # candidate confidence as before; internally this now also derives a
+        # conservative VerificationEvidenceLevel (see
+        # memory_engine.services.verification_evidence). Git branch/commit
+        # already resolved above are reused here rather than making a fresh
+        # Git call.
+        verification_evidence = None
+        if any((
+            inp.evidence_target, inp.evidence_exit_code is not None,
+            inp.evidence_output_digest, inp.evidence_observer, inp.evidence_external_ref,
+        )):
+            from memory_engine.models.domain import VerificationEvidence
+            verification_evidence = VerificationEvidence(
+                target=inp.evidence_target,
+                exit_code=inp.evidence_exit_code,
+                output_digest=inp.evidence_output_digest,
+                observer=inp.evidence_observer,
+                external_ref=inp.evidence_external_ref,
+                source_branch=effective_branch,
+                source_commit=effective_commit,
+                working_tree_dirty=(git_ctx.working_tree_dirty if git_ctx.is_repository else None),
+            )
+        asserted_evidence_level = None
+        if inp.asserted_evidence_level:
+            from memory_engine.models.domain import VerificationEvidenceLevel
+            try:
+                asserted_evidence_level = VerificationEvidenceLevel(inp.asserted_evidence_level)
+            except ValueError:
+                asserted_evidence_level = None
+
         reflection_input = ReflectionInput(
             project_id=uuid.UUID(ctx.get_project_id()),
             task_description=inp.task,
@@ -497,6 +528,8 @@ def tool_reflect_and_write(
             head_commit=effective_commit,
             branch_scope=branch_scope,
             task_intent=explicit_intent,
+            verification_evidence=verification_evidence,
+            asserted_evidence_level=asserted_evidence_level,
         )
         result = svc.reflect_and_write(reflection_input)
 

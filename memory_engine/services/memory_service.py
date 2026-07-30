@@ -79,6 +79,12 @@ class MemoryService:
             constraint_scope=payload.constraint_scope,
             constraint_scope_ref=payload.constraint_scope_ref,
             trust_level=trust_level,
+            evidence_level=payload.evidence_level,
+            verification_evidence=(
+                payload.verification_evidence.model_dump(mode="json")
+                if payload.verification_evidence is not None
+                else None
+            ),
         )
         return MemoryNode.model_validate(orm)
 
