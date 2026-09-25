@@ -14,7 +14,7 @@ class SemanticRetrievalSettings(BaseModel):
     """
 
     enabled: bool = False
-    provider: str = "none"          # none | sentence_transformers | ollama
+    provider: str = "none"          # none | sentence_transformers | ollama | fastembed
     model: str = "BAAI/bge-small-en-v1.5"
     backend: str = "sqlite_vec"     # none | sqlite_vec | qdrant_embedded
     top_k: int = 20

@@ -56,7 +56,7 @@ Memory Engine solves this by maintaining a structured, evidence-backed memory tr
 | **Automatic post-task reflection** | Agent reports outcome → system decides whether and how to retain knowledge |
 | **Knowledge ingestion** | Markdown, code, ADR, test reports, runtime logs, git diffs |
 | **Local FTS5 search** | SQLite FTS5 with porter tokenizer; no external search engine |
-| **Optional semantic retrieval** | Persistent local sqlite-vec backend with sentence-transformers / Ollama embeddings (Phase 13); default OFF, no required deps |
+| **Optional semantic retrieval** | Persistent local sqlite-vec backend with sentence-transformers / Ollama / FastEmbed (ONNX Runtime) embeddings (Phase 13); default OFF, no required deps |
 | **Lexical structured fallback** | Full retrieval without vector backend or Docker |
 | **Unified ContextPack** | Memory + knowledge merged, deduplicated, token-budgeted |
 | **Retrieval traceability** | Per-signal score breakdown in every response |
@@ -596,7 +596,7 @@ Query
 
 - Default `uv sync` installs nothing extra — no model downloads, no new required deps.
 - [sqlite-vec](https://github.com/asg017/sqlite-vec) is the persistent backend: no Docker, no external service.
-- Sentence-transformers and Ollama are optional **local** embedding providers. No cloud APIs.
+- sentence-transformers, Ollama, and FastEmbed are optional **local** embedding providers. No cloud APIs.
 - FTS5 lexical fallback is unchanged when semantic is disabled.
 - Branch / revision / lifecycle safety filters are never bypassed by semantic results.
 - Content is redacted before embedding (same `redact()` path as the rest of the engine).
@@ -622,9 +622,10 @@ memory semantic status --enable --project-root /your/project
 **Option B — manual**
 
 ```bash
-# 1. Install deps
+# 1. Install deps (choose one provider)
 uv pip install 'memory-engine[semantic-transformers]'   # sentence-transformers + sqlite-vec
-# or: uv pip install 'memory-engine[semantic-ollama]'   # Ollama + sqlite-vec
+# or: uv pip install 'memory-engine[semantic-ollama]'        # Ollama + sqlite-vec
+# or: uv pip install 'memory-engine[semantic-fastembed]'     # FastEmbed (ONNX Runtime) + sqlite-vec
 
 # 2. Persist to project config (survives terminal restarts)
 memory semantic status --enable --project-root /your/project

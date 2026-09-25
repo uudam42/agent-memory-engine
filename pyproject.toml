@@ -28,7 +28,8 @@ dev = [
 semantic-sqlite = ["sqlite-vec>=0.1.0"]
 semantic-transformers = ["sentence-transformers>=2.7.0", "sqlite-vec>=0.1.0"]
 semantic-ollama = ["httpx>=0.27.0", "sqlite-vec>=0.1.0"]
-semantic-all = ["sentence-transformers>=2.7.0", "sqlite-vec>=0.1.0", "httpx>=0.27.0"]
+semantic-fastembed = ["fastembed>=0.3.0", "sqlite-vec>=0.1.0"]
+semantic-all = ["sentence-transformers>=2.7.0", "sqlite-vec>=0.1.0", "httpx>=0.27.0", "fastembed>=0.3.0"]
 
 [project.scripts]
 memory = "memory_engine.cli:app"

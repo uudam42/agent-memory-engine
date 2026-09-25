@@ -38,6 +38,7 @@ unchanged, no embedding is regenerated.
 | None (default) | `none` | — | No embeddings; `semantic_similarity` stays 0.0. |
 | sentence-transformers | `sentence_transformers` | `memory-engine[semantic-transformers]` | Local model, e.g. `BAAI/bge-small-en-v1.5`. |
 | Ollama | `ollama` | `memory-engine[semantic-ollama]` | Talks to a local Ollama at `http://localhost:11434`. |
+| FastEmbed | `fastembed` | `memory-engine[semantic-fastembed]` | ONNX Runtime in-process; no PyTorch dependency. |
 
 No cloud embedding APIs are ever called. If the configured provider is
 unavailable (not installed, model missing, service down), the engine falls back
@@ -75,7 +76,7 @@ Top-level environment overrides (highest precedence):
 
 ```bash
 export MEMORY_ENGINE_SEMANTIC_ENABLED=1
-export MEMORY_ENGINE_EMBEDDING_PROVIDER=sentence_transformers   # | ollama | none
+export MEMORY_ENGINE_EMBEDDING_PROVIDER=sentence_transformers   # | ollama | fastembed | none
 export MEMORY_ENGINE_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 export MEMORY_ENGINE_VECTOR_BACKEND=sqlite_vec
 export MEMORY_ENGINE_OLLAMA_BASE_URL=http://localhost:11434
@@ -111,7 +112,8 @@ All additions are backward-compatible — existing callers are unaffected.
 
 ## Privacy guarantees
 
-- All embedding is local (sentence-transformers in-process, or a local Ollama).
+- All embedding is local (sentence-transformers in-process, FastEmbed via ONNX
+  Runtime in-process, or a local Ollama).
 - Content is passed through the existing `redact()` filter before any vector is
   generated, so secrets never reach the embedding model or `vector.db`.
 - No network calls to cloud embedding providers.
@@ -121,7 +123,11 @@ All additions are backward-compatible — existing callers are unaffected.
 - Embedding quality depends on the chosen local model.
 - `sentence-transformers` downloads the model on first use (one-time, then cached
   locally). This is outside the default `uv sync`.
+- `fastembed` also downloads models on first use (cached in
+  `~/.cache/fastembed/`). Same one-time download behaviour.
 - Dimension changes (switching models) clear the existing vectors and require a
   reindex; `migrate_vector_tables` detects this automatically.
 - sqlite-vec KNN returns L2 distance; cosine similarity assumes the provider
-  emits L2-normalized vectors (sentence-transformers `normalize_embeddings=True`).
+  emits L2-normalized vectors (sentence-transformers `normalize_embeddings=True`;
+  FastEmbed vectors are normalized by the provider implementation).
+
