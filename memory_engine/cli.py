@@ -763,7 +763,8 @@ def semantic_status(
         write_semantic_config(config_path, enabled=True, provider=provider, model=model)
         rprint(f"[green]✓[/green] Semantic retrieval enabled in {config_path}")
         rprint(f"  provider={provider}  model={model}")
-        rprint("  [dim]Install deps if needed: uv pip install 'memory-engine[semantic-transformers]'[/dim]")
+        rprint("  [dim]Install deps if needed: uv pip install 'memory-engine[semantic-transformers]' "
+               "| 'memory-engine[semantic-ollama]' | 'memory-engine[semantic-fastembed]'[/dim]")
         rprint("  [dim]Env vars (MEMORY_ENGINE_SEMANTIC_ENABLED etc.) still override config.yaml.[/dim]")
 
     ctx = _semantic_ctx(project_root)

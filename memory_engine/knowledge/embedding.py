@@ -1,10 +1,11 @@
 """Embedding provider abstraction — Phase 13.
 
-Defines a clean Protocol plus three implementations:
+Defines a clean Protocol plus four implementations:
 
   NoEmbeddingProvider           — safe default; no embeddings, semantic stays 0.0
   SentenceTransformersProvider  — optional local provider via sentence-transformers
   OllamaEmbeddingProvider       — optional local Ollama embedding provider
+  FastEmbedProvider             — optional local provider via FastEmbed (ONNX Runtime)
 
 build_provider(config) constructs the configured provider and falls back to
 NoEmbeddingProvider whenever the requested backend is disabled or unavailable.
@@ -134,6 +135,58 @@ class OllamaEmbeddingProvider:
         return result[0] if result else []
 
 
+class FastEmbedProvider:
+    """Optional local provider via FastEmbed (ONNX Runtime, no PyTorch).
+
+    FastEmbed runs entirely in-process using ONNX Runtime — no separate daemon,
+    no PyTorch dependency, and a smaller optional-dependency footprint than
+    sentence-transformers.  Install with:
+
+        uv pip install 'memory-engine[semantic-fastembed]'
+
+    Vectors are L2-normalised before being returned so that cosine-similarity
+    arithmetic in the sqlite-vec KNN backend is correct.
+    """
+
+    provider_name = "fastembed"
+
+    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5") -> None:
+        self.model_name = model_name
+        self._model = None
+        self.dimension = 0
+
+    def is_available(self) -> bool:
+        try:
+            from fastembed import TextEmbedding  # type: ignore
+
+            if self._model is None:
+                self._model = TextEmbedding(model_name=self.model_name)
+                probe = list(self._model.embed(["probe"]))
+                if probe:
+                    vec = probe[0]
+                    self.dimension = len(vec) if hasattr(vec, "__len__") else len(list(vec))
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _l2_normalise(vec: list[float]) -> list[float]:
+        norm = sum(x * x for x in vec) ** 0.5
+        if norm == 0.0:
+            return vec
+        return [x / norm for x in vec]
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        if not self.is_available():
+            return [[] for _ in texts]
+        raw = list(self._model.embed(texts))  # type: ignore[union-attr]
+        return [self._l2_normalise([float(x) for x in vec]) for vec in raw]
+
+    def embed_query(self, query: str) -> list[float]:
+        result = self.embed_texts([query])
+        return result[0] if result else []
+
+
 def build_provider(config) -> EmbeddingProvider:  # type: ignore[no-untyped-def]
     """Build the configured provider, falling back to NoEmbeddingProvider.
 
@@ -156,4 +209,9 @@ def build_provider(config) -> EmbeddingProvider:  # type: ignore[no-untyped-def]
         )
         if p_ol.is_available():
             return p_ol
+    elif name == "fastembed":
+        p_fe = FastEmbedProvider(model_name=config.model)
+        if p_fe.is_available():
+            return p_fe
     return NoEmbeddingProvider()
+

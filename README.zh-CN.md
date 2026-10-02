@@ -582,6 +582,7 @@ Phase 13 引入一个可选的 **本地持久化语义索引**，让检索也能
 
 - 默认 `uv sync` 不安装任何额外内容——不下载模型，不新增必需依赖。
 - [sqlite-vec](https://github.com/asg017/sqlite-vec) 为持久化后端：无需 Docker、无需外部服务。
+<!-- TODO: translate FastEmbed additions from README.md — added in feat/fastembed-provider -->
 - sentence-transformers 与 Ollama 是可选的 **本地** Embedding Provider，绝不调用云端 API。
 - 语义关闭时，FTS5 词法回退路径完全不变。
 - 语义结果同样受分支 / 修订 / 生命周期安全过滤约束，绝不绕过。
@@ -608,9 +609,10 @@ memory semantic status --enable --project-root /your/project
 **方式 B — 手动**
 
 ```bash
-# 1. 安装依赖
+# 1. 安装依赖（选择一个 Provider）
 uv pip install 'memory-engine[semantic-transformers]'   # sentence-transformers + sqlite-vec
-# 或：uv pip install 'memory-engine[semantic-ollama]'   # Ollama + sqlite-vec
+# 或：uv pip install 'memory-engine[semantic-ollama]'        # Ollama + sqlite-vec
+# 或：uv pip install 'memory-engine[semantic-fastembed]'     # FastEmbed (ONNX Runtime) + sqlite-vec
 
 # 2. 持久化到项目配置（重启终端后依然有效）
 memory semantic status --enable --project-root /your/project
